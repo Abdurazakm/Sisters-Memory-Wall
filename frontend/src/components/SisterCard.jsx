@@ -49,7 +49,7 @@ export default function SisterCard({ sister }) {
         fireConfetti(); // confetti on each photo swap
         return next;
       });
-    }, 2000); // swap every 4 seconds
+    }, 3000); // swap every 4 seconds
   };
 
   const openSurprise = () => {

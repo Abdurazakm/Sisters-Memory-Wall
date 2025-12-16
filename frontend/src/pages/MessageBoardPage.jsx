@@ -12,12 +12,6 @@ export default function MessageBoardPage() {
         <MessageBoard />
 
         <div className="mt-8 text-center">
-          <Link
-            to="/"
-            className="inline-block bg-purple-500 text-white px-6 py-3 rounded-full shadow-lg hover:bg-purple-600 transition"
-          >
-            ← Back to Home
-          </Link>
         </div>
       </div>
     </div>
