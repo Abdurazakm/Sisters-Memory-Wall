@@ -69,8 +69,11 @@ async function connectDB() {
   // Chat Messages
   await db.execute(`CREATE TABLE IF NOT EXISTS messages (id INT AUTO_INCREMENT PRIMARY KEY, author VARCHAR(100), text TEXT, file_url VARCHAR(500), file_type VARCHAR(100), file_name VARCHAR(255), file_size INT, reply_to INT NULL, time DATETIME DEFAULT CURRENT_TIMESTAMP)`);
 
-  // Feed Posts
-  await db.execute(`CREATE TABLE IF NOT EXISTS posts (id INT AUTO_INCREMENT PRIMARY KEY, author VARCHAR(100), text TEXT, time DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+  // Feed Posts (UPDATED with TYPE)
+  await db.execute(`CREATE TABLE IF NOT EXISTS posts (id INT AUTO_INCREMENT PRIMARY KEY, author VARCHAR(100), text TEXT, type ENUM('post', 'dua') DEFAULT 'post', time DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+
+  // Dua Confirmations (NEW TABLE)
+  await db.execute(`CREATE TABLE IF NOT EXISTS dua_confirmations (id INT AUTO_INCREMENT PRIMARY KEY, dua_id INT, user_id VARCHAR(100), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY unique_dua_user (dua_id, user_id), FOREIGN KEY (dua_id) REFERENCES posts(id) ON DELETE CASCADE)`);
 
   // Multiple Files for Posts
   await db.execute(`CREATE TABLE IF NOT EXISTS post_files (id INT AUTO_INCREMENT PRIMARY KEY, post_id INT, file_url VARCHAR(500), file_type VARCHAR(100), file_name VARCHAR(255), FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE)`);
@@ -78,7 +81,7 @@ async function connectDB() {
   // Comments
   await db.execute(`CREATE TABLE IF NOT EXISTS comments (id INT AUTO_INCREMENT PRIMARY KEY, post_id INT, author VARCHAR(100), text TEXT, reply_to INT NULL, time DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE)`);
 
-  console.log("✅ Database System and Edit Feature Ready");
+  console.log("✅ Database System and Dua Feature Ready");
   await seedUsers();
 }
 
@@ -119,52 +122,38 @@ app.post("/api/login", async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Server error" }); }
 });
 
-/* ================== CHAT MESSAGE ROUTES ================== */
-app.get("/api/messages", auth, async (req, res) => {
-  try {
-    const [rows] = await db.execute(`SELECT m1.*, m2.author AS reply_author, m2.text AS reply_text, m2.file_name AS reply_file_name FROM messages m1 LEFT JOIN messages m2 ON m1.reply_to = m2.id ORDER BY m1.time ASC`);
-    const messages = rows.map(msg => ({
-      id: msg.id, author: msg.author, text: msg.text, file_url: msg.file_url, file_type: msg.file_type, file_name: msg.file_name, time: msg.time,
-      replyTo: msg.reply_to ? { id: msg.reply_to, author: msg.reply_author, text: msg.reply_text } : null
-    }));
-    res.json(messages);
-  } catch (err) { res.status(500).send(); }
-});
-
-app.post("/api/messages", auth, upload.single("file"), async (req, res) => {
-  try {
-    const author = req.user.userId;
-    const { text, replyTo } = req.body;
-    let file = [null, null, null, null];
-    if (req.file) file = [`/uploads/${req.file.filename}`, req.file.mimetype, req.file.originalname, req.file.size];
-
-    const [result] = await db.execute("INSERT INTO messages (author, text, file_url, file_type, file_name, file_size, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)", [author, text || null, ...file, replyTo || null]);
-    const [newMsg] = await db.execute(`SELECT m1.*, m2.author AS reply_author, m2.text AS reply_text FROM messages m1 LEFT JOIN messages m2 ON m1.reply_to = m2.id WHERE m1.id = ?`, [result.insertId]);
-    
-    io.emit("newMessage", newMsg[0]);
-    res.json(newMsg[0]);
-  } catch (err) { res.status(500).send(); }
-});
-
 /* ================== FEED POSTS ROUTES ================== */
 app.get("/api/posts", auth, async (req, res) => {
   try {
-    const [posts] = await db.execute("SELECT * FROM posts ORDER BY time DESC");
+    // Advanced Query: Get posts and a JSON array of everyone who confirmed (Ameen)
+    const [posts] = await db.execute(`
+      SELECT p.*, 
+      (SELECT JSON_ARRAYAGG(JSON_OBJECT('username', dc.user_id)) 
+       FROM dua_confirmations dc 
+       WHERE dc.dua_id = p.id) AS confirmations
+      FROM posts p 
+      ORDER BY p.time DESC
+    `);
+
     for (let post of posts) {
       const [files] = await db.execute("SELECT file_url, file_type, file_name FROM post_files WHERE post_id = ?", [post.id]);
       const [comments] = await db.execute(`SELECT c.*, r.author AS reply_to_name FROM comments c LEFT JOIN comments r ON c.reply_to = r.id WHERE c.post_id = ? ORDER BY c.time ASC`, [post.id]);
       post.files = files;
       post.comments = comments;
+      post.confirmations = post.confirmations || []; // Ensure it's an array
     }
     res.json(posts);
-  } catch (err) { res.status(500).json({ error: "Fetch error" }); }
+  } catch (err) { 
+    console.error(err);
+    res.status(500).json({ error: "Fetch error" }); 
+  }
 });
 
 app.post("/api/posts", auth, upload.array("files", 10), async (req, res) => {
   try {
     const author = req.user.userId;
-    const { text } = req.body;
-    const [result] = await db.execute("INSERT INTO posts (author, text) VALUES (?, ?)", [author, text || null]);
+    const { text, type } = req.body; // type is 'post' or 'dua'
+    const [result] = await db.execute("INSERT INTO posts (author, text, type) VALUES (?, ?, ?)", [author, text || null, type || 'post']);
     const postId = result.insertId;
 
     if (req.files) {
@@ -172,12 +161,29 @@ app.post("/api/posts", auth, upload.array("files", 10), async (req, res) => {
         await db.execute("INSERT INTO post_files (post_id, file_url, file_type, file_name) VALUES (?, ?, ?, ?)", [postId, `/uploads/${file.filename}`, file.mimetype, file.originalname]);
       }
     }
-    const [newPost] = await db.execute("SELECT * FROM posts WHERE id = ?", [postId]);
-    newPost[0].files = req.files ? req.files.map(f => ({ file_url: `/uploads/${f.filename}`, file_type: f.mimetype })) : [];
-    newPost[0].comments = [];
-    io.emit("newPost", newPost[0]);
-    res.json(newPost[0]);
+    
+    // Notify all sisters about new content
+    io.emit("newPost", { id: postId, author, text, type: type || 'post' });
+    res.json({ success: true, id: postId });
   } catch (err) { res.status(500).send(); }
+});
+
+// DUA CONFIRMATION (AMEEN)
+app.post("/api/dua/confirm/:id", auth, async (req, res) => {
+  try {
+    const duaId = req.params.id;
+    const userId = req.user.userId;
+
+    // Use INSERT IGNORE to prevent multiple clicks from erroring
+    await db.execute(
+      "INSERT IGNORE INTO dua_confirmations (dua_id, user_id) VALUES (?, ?)",
+      [duaId, userId]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Confirmation failed" });
+  }
 });
 
 // EDIT POST
@@ -185,20 +191,18 @@ app.put("/api/posts/:id", auth, async (req, res) => {
   try {
     const { text } = req.body;
     const [rows] = await db.execute("SELECT author FROM posts WHERE id = ?", [req.params.id]);
-    if (!rows.length) return res.status(404).send();
-    if (rows[0].author !== req.user.userId) return res.status(403).send();
+    if (!rows.length || rows[0].author !== req.user.userId) return res.status(403).send();
 
     await db.execute("UPDATE posts SET text = ? WHERE id = ?", [text, req.params.id]);
     res.json({ success: true });
   } catch (err) { res.status(500).send(); }
 });
 
-// DELETE POST (Includes cleanup of files on disk)
+// DELETE POST
 app.delete("/api/posts/:id", auth, async (req, res) => {
   try {
     const [rows] = await db.execute("SELECT author FROM posts WHERE id = ?", [req.params.id]);
-    if (!rows.length) return res.status(404).send();
-    if (rows[0].author !== req.user.userId) return res.status(403).send();
+    if (!rows.length || rows[0].author !== req.user.userId) return res.status(403).send();
 
     const [files] = await db.execute("SELECT file_url FROM post_files WHERE post_id = ?", [req.params.id]);
     files.forEach(f => {
@@ -221,23 +225,12 @@ app.post("/api/posts/:postId/comments", auth, async (req, res) => {
   } catch (err) { res.status(500).send(); }
 });
 
-// EDIT COMMENT TEXT
 app.put("/api/comments/:id", auth, async (req, res) => {
   try {
     const { text } = req.body;
-    const commentId = req.params.id;
-    const userId = req.user.userId;
-
-    // Verify ownership
-    const [rows] = await db.execute("SELECT author FROM comments WHERE id = ?", [commentId]);
-    if (rows.length === 0) return res.status(404).json({ error: "Comment not found" });
-    if (rows[0].author !== userId) return res.status(403).json({ error: "Forbidden" });
-
-    await db.execute("UPDATE comments SET text = ? WHERE id = ?", [text, commentId]);
+    await db.execute("UPDATE comments SET text = ? WHERE id = ? AND author = ?", [text, req.params.id, req.user.userId]);
     res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: "Update failed" });
-  }
+  } catch (err) { res.status(500).send(); }
 });
 
 app.delete("/api/comments/:id", auth, async (req, res) => {
@@ -247,10 +240,34 @@ app.delete("/api/comments/:id", auth, async (req, res) => {
   } catch (err) { res.status(500).send(); }
 });
 
+/* ================== CHAT MESSAGE ROUTES ================== */
+app.get("/api/messages", auth, async (req, res) => {
+  try {
+    const [rows] = await db.execute(`SELECT m1.*, m2.author AS reply_author, m2.text AS reply_text FROM messages m1 LEFT JOIN messages m2 ON m1.reply_to = m2.id ORDER BY m1.time ASC`);
+    res.json(rows);
+  } catch (err) { res.status(500).send(); }
+});
+
+app.post("/api/messages", auth, upload.single("file"), async (req, res) => {
+  try {
+    const author = req.user.userId;
+    const { text, replyTo } = req.body;
+    let file = [null, null, null, null];
+    if (req.file) file = [`/uploads/${req.file.filename}`, req.file.mimetype, req.file.originalname, req.file.size];
+
+    const [result] = await db.execute("INSERT INTO messages (author, text, file_url, file_type, file_name, file_size, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)", [author, text || null, ...file, replyTo || null]);
+    const [newMsg] = await db.execute(`SELECT m1.*, m2.author AS reply_author, m2.text AS reply_text FROM messages m1 LEFT JOIN messages m2 ON m1.reply_to = m2.id WHERE m1.id = ?`, [result.insertId]);
+    
+    io.emit("newMessage", newMsg[0]);
+    res.json(newMsg[0]);
+  } catch (err) { res.status(500).send(); }
+});
+
 /* ================== SOCKET SETUP ================== */
 io.use((socket, next) => {
   try {
     const token = socket.handshake.auth.token;
+    if (!token) return next(new Error("No token"));
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     socket.user = decoded;
     next();

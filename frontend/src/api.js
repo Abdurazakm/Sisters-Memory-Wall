@@ -28,7 +28,6 @@ export const getMessages = async () => {
 };
 
 export const addMessage = async (formData) => {
-  // Using multipart/form-data here in case you upload files in chat
   const res = await api.post("/api/messages", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   });
@@ -42,8 +41,8 @@ export const getPosts = async () => {
 };
 
 /**
- * Creates a post with multiple files. 
- * @param {FormData} formData - Should contain 'text' and multiple 'files' append fields
+ * Creates a post or dua request. 
+ * @param {FormData} formData - Contains 'text', 'type' (post/dua), and 'files'
  */
 export const createPost = async (formData) => {
   const res = await api.post("/api/posts", formData, {
@@ -53,9 +52,16 @@ export const createPost = async (formData) => {
 };
 
 /**
+ * Confirms a Dua request (The "Ameen" action).
+ * @param {number} id - The ID of the Dua post
+ */
+export const confirmDua = async (id) => {
+  const res = await api.post(`/api/dua/confirm/${id}`);
+  return res.data;
+};
+
+/**
  * Updates only the text content of a post.
- * @param {number} id 
- * @param {string} text 
  */
 export const updatePost = async (id, text) => {
   const res = await api.put(`/api/posts/${id}`, { text });
@@ -77,6 +83,7 @@ export const deleteComment = async (id) => {
   const res = await api.delete(`/api/comments/${id}`);
   return res.data;
 };
+
 export const updateComment = async (id, text) => {
   const res = await api.put(`/api/comments/${id}`, { text });
   return res.data;
