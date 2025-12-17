@@ -101,6 +101,9 @@ const MessageItem = memo(({ message, isMine, editingId, setEditingId, setEditTex
     return () => document.removeEventListener("mousedown", closeMenu);
   }, []);
 
+  // Determine the ID to navigate to
+  const targetReplyId = message.replyTo?.id || (typeof message.replyTo !== 'object' ? message.replyTo : null);
+
   return (
     <div id={`msg-${message.id}`} className={`flex gap-2 w-full transition-all duration-300 ${isMine ? "justify-end" : "justify-start"}`}>
       {!isMine && <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-purple-400 text-white flex items-center justify-center font-bold shrink-0 text-sm">{letter}</div>}
@@ -135,11 +138,14 @@ const MessageItem = memo(({ message, isMine, editingId, setEditingId, setEditTex
 
         {message.replyTo && (
           <div 
-            onClick={() => onReplyClick(message.replyTo.id)}
+            onClick={() => targetReplyId && onReplyClick(targetReplyId)}
             className={`mb-2 p-2 rounded border-l-4 text-[11px] cursor-pointer hover:bg-black/5 transition-colors ${isMine ? "bg-white/20 border-white/60" : "bg-gray-100 border-purple-500"}`}
           >
-            <p className="font-semibold opacity-80">{message.replyTo.author}</p>
-            <p className="truncate opacity-80">{message.replyTo.text || message.replyTo.file_name || "Original message"}</p>
+            <p className="font-semibold opacity-80">{message.replyTo.author || "User"}</p>
+            <p className="truncate opacity-80 italic">
+              {/* Intelligent display: Text > File Name > Fallback */}
+              {message.replyTo.text || message.replyTo.file_name || (message.replyTo.file_url ? "Attachment" : "Original message")}
+            </p>
           </div>
         )}
 
@@ -162,6 +168,8 @@ const MessageItem = memo(({ message, isMine, editingId, setEditingId, setEditTex
       </div>
 
       {isMine && <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-purple-600 text-white flex items-center justify-center font-bold shrink-0 text-sm">{letter}</div>}
+      
+      <style>{`.message-highlight { animation: highlight-fade 2s ease-in-out; } @keyframes highlight-fade { 0% { background-color: rgba(168, 85, 247, 0.3); } 100% { background-color: transparent; } }`}</style>
     </div>
   );
 });
@@ -191,7 +199,31 @@ export default function MessageBoard() {
   useEffect(() => {
     if (!token) return;
     socketRef.current = io(BACKEND_URL, { auth: { token }, transports: ["websocket"] });
-    socketRef.current.on("newMessage", (msg) => { if (msg.author !== username) setMessages((p) => [...p, msg]); });
+
+    socketRef.current.on("newMessage", (msg) => { 
+      // If the incoming message is from someone else, process it
+      if (msg.author !== username) {
+        setMessages((prev) => {
+          // If message is a reply, we must "Hydrate" it with text from our local history
+          if (msg.replyTo) {
+            const originalId = msg.replyTo.id || msg.replyTo;
+            const originalMsg = prev.find(m => m.id === originalId);
+            
+            if (originalMsg) {
+              msg.replyTo = {
+                id: originalMsg.id,
+                author: originalMsg.author,
+                text: originalMsg.text,
+                file_name: originalMsg.file_name,
+                file_url: originalMsg.file_url
+              };
+            }
+          }
+          return [...prev, msg];
+        });
+      }
+    });
+
     socketRef.current.on("updateMessage", (updated) => setMessages((p) => p.map((m) => (m.id === updated.id ? updated : m))));
     socketRef.current.on("deleteMessage", ({ id }) => setMessages((p) => p.filter((m) => m.id !== id)));
     return () => socketRef.current.disconnect();
@@ -221,10 +253,14 @@ export default function MessageBoard() {
   const sendMessage = async () => {
     if (!text.trim() && !replyTo) return;
     const currentReplyData = replyTo;
+    
+    // We send only the ID to the server
     const payload = { text: text.trim(), replyTo: currentReplyData ? currentReplyData.id : null };
+    
     try {
       const saved = await addMessage(payload);
       if (saved) {
+        // We update our local state with the full reply metadata immediately
         setMessages((prev) => [...prev, { ...saved, replyTo: currentReplyData }]);
         setText("");
         setReplyTo(null);
@@ -238,14 +274,24 @@ export default function MessageBoard() {
     formData.append("file", file);
     formData.append("fileName", file.name);
     formData.append("fileType", file.type);
+    if (replyTo) formData.append("replyTo", replyTo.id);
+
     setUploadProgress({ fileName: file.name, progress: 0 });
     const xhr = new XMLHttpRequest();
     xhr.upload.onprogress = (e) => { if (e.lengthComputable) setUploadProgress((p) => ({ ...p, progress: Math.round((e.loaded / e.total) * 100) })); };
-    xhr.onload = () => { if (xhr.status === 200) setMessages((p) => [...p, JSON.parse(xhr.responseText)]); setUploadProgress(null); };
+    xhr.onload = () => { 
+      if (xhr.status === 200) {
+        const saved = JSON.parse(xhr.responseText);
+        // Add full replyTo object so it shows correctly on current user's screen
+        setMessages((p) => [...p, { ...saved, replyTo: replyTo }]); 
+        setReplyTo(null);
+      } 
+      setUploadProgress(null); 
+    };
     xhr.open("POST", `${BACKEND_URL}/api/messages`);
     xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.send(formData);
-  }, [token]);
+  }, [token, replyTo]);
 
   const startRecording = async () => {
     try {
@@ -325,13 +371,14 @@ export default function MessageBoard() {
           <div className="absolute bottom-full left-0 w-full bg-purple-50 border-l-4 border-purple-500 px-4 py-2 text-xs flex justify-between items-center shadow-inner">
             <div className="min-w-0 pr-4">
               <p className="font-bold text-purple-600 truncate">Replying to {replyTo.author}</p>
-              <p className="text-gray-600 truncate">{replyTo.text || replyTo.file_name || "Attachment"}</p>
+              <p className="text-gray-600 truncate italic">
+                {replyTo.text || replyTo.file_name || (replyTo.file_url ? "Attachment" : "Original message")}
+              </p>
             </div>
             <button onClick={() => setReplyTo(null)} className="text-gray-400 hover:text-gray-600 shrink-0"><FiX size={18} /></button>
           </div>
         )}
 
-        {/* RESPONSIVE INPUT CONTAINER */}
         <div className="p-2 sm:p-3 flex items-end gap-1 sm:gap-2 max-w-4xl mx-auto">
           <div className="flex items-center gap-0.5 sm:gap-1 mb-1 shrink-0">
             <button onClick={() => setShowEmoji(!showEmoji)} className="p-2 text-gray-500 hover:text-purple-600 transition-colors"><FiSmile size={20} /></button>
