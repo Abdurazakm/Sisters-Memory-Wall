@@ -20,10 +20,7 @@ const io = socketIo(server, {
   },
 });
 
-app.use(cors({
-  origin: "http://localhost:5173",
-  credentials: true
-}));
+app.use(cors({ origin: "http://localhost:5173", credentials: true }));
 app.use(express.json());
 app.use("/uploads", express.static("uploads"));
 
@@ -39,18 +36,16 @@ const storage = multer.diskStorage({
   destination: (_, __, cb) => cb(null, "uploads"),
   filename: (_, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, uniqueSuffix + ext);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
   },
 });
 
 const upload = multer({
   storage,
   limits: { fileSize: 50 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => cb(null, true),
 });
 
-/* ================== DB ================== */
+/* ================== DB & TABLES ================== */
 async function connectDB() {
   const temp = await mysql.createConnection({
     host: process.env.DB_HOST,
@@ -68,32 +63,22 @@ async function connectDB() {
     database: process.env.DB_NAME,
   });
 
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      username VARCHAR(100) UNIQUE NOT NULL,
-      password VARCHAR(255) NOT NULL
-    )
-  `);
+  // Users
+  await db.execute(`CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(100) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL)`);
 
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS messages (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      author VARCHAR(100),
-      text TEXT,
-      file_url VARCHAR(500),
-      file_type VARCHAR(100),
-      file_name VARCHAR(255),
-      file_size INT,
-      reply_to INT NULL,
-      time DATETIME DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_time (time),
-      INDEX idx_author (author),
-      INDEX idx_reply_to (reply_to)
-    )
-  `);
+  // Chat Messages
+  await db.execute(`CREATE TABLE IF NOT EXISTS messages (id INT AUTO_INCREMENT PRIMARY KEY, author VARCHAR(100), text TEXT, file_url VARCHAR(500), file_type VARCHAR(100), file_name VARCHAR(255), file_size INT, reply_to INT NULL, time DATETIME DEFAULT CURRENT_TIMESTAMP)`);
 
-  console.log("✅ Database ready");
+  // Feed Posts
+  await db.execute(`CREATE TABLE IF NOT EXISTS posts (id INT AUTO_INCREMENT PRIMARY KEY, author VARCHAR(100), text TEXT, time DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+
+  // Multiple Files for Posts
+  await db.execute(`CREATE TABLE IF NOT EXISTS post_files (id INT AUTO_INCREMENT PRIMARY KEY, post_id INT, file_url VARCHAR(500), file_type VARCHAR(100), file_name VARCHAR(255), FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE)`);
+
+  // Comments
+  await db.execute(`CREATE TABLE IF NOT EXISTS comments (id INT AUTO_INCREMENT PRIMARY KEY, post_id INT, author VARCHAR(100), text TEXT, reply_to INT NULL, time DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE)`);
+
+  console.log("✅ Database System and Edit Feature Ready");
   await seedUsers();
 }
 
@@ -103,13 +88,11 @@ async function seedUsers() {
     try {
       const hash = await bcrypt.hash(defaultPassword, 10);
       await db.execute("INSERT IGNORE INTO users (username, password) VALUES (?, ?)", [username, hash]);
-    } catch (err) {
-      console.error("Error seeding user:", username, err);
-    }
+    } catch (err) { console.error("Error seeding user:", username, err); }
   }
 }
 
-/* ================== AUTH ================== */
+/* ================== AUTH MIDDLEWARE ================== */
 function auth(req, res, next) {
   const header = req.headers.authorization;
   if (!header) return res.status(401).json({ error: "No token" });
@@ -119,12 +102,10 @@ function auth(req, res, next) {
     if (!ALLOWED_USERS.includes(decoded.userId)) return res.status(403).json({ error: "Forbidden" });
     req.user = decoded;
     next();
-  } catch (err) {
-    res.status(401).json({ error: "Invalid token" });
-  }
+  } catch (err) { res.status(401).json({ error: "Invalid token" }); }
 }
 
-/* ================== LOGIN ================== */
+/* ================== AUTH ROUTES ================== */
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
   if (!ALLOWED_USERS.includes(username)) return res.status(403).json({ error: "Not allowed" });
@@ -135,131 +116,138 @@ app.post("/api/login", async (req, res) => {
     if (!valid) return res.status(401).json({ error: "Invalid credentials" });
     const token = jwt.sign({ userId: username }, process.env.JWT_SECRET, { expiresIn: "7d" });
     res.json({ token, user: { username } });
-  } catch (err) {
-    res.status(500).json({ error: "Server error" });
-  }
+  } catch (err) { res.status(500).json({ error: "Server error" }); }
 });
 
-/* ================== GET MESSAGES (WITH JOIN FOR REPLIES) ================== */
+/* ================== CHAT MESSAGE ROUTES ================== */
 app.get("/api/messages", auth, async (req, res) => {
   try {
-    // JOIN query to get reply details (author and text)
-    const [rows] = await db.execute(`
-      SELECT 
-        m1.*, 
-        m2.author AS reply_author, 
-        m2.text AS reply_text,
-        m2.file_name AS reply_file_name
-      FROM messages m1
-      LEFT JOIN messages m2 ON m1.reply_to = m2.id
-      ORDER BY m1.time ASC
-    `);
-    
+    const [rows] = await db.execute(`SELECT m1.*, m2.author AS reply_author, m2.text AS reply_text, m2.file_name AS reply_file_name FROM messages m1 LEFT JOIN messages m2 ON m1.reply_to = m2.id ORDER BY m1.time ASC`);
     const messages = rows.map(msg => ({
-      id: msg.id,
-      author: msg.author,
-      text: msg.text,
-      file_url: msg.file_url,
-      file_type: msg.file_type,
-      file_name: msg.file_name,
-      time: msg.time,
-      replyTo: msg.reply_to ? {
-        id: msg.reply_to,
-        author: msg.reply_author,
-        text: msg.reply_text,
-        file_name: msg.reply_file_name
-      } : null
+      id: msg.id, author: msg.author, text: msg.text, file_url: msg.file_url, file_type: msg.file_type, file_name: msg.file_name, time: msg.time,
+      replyTo: msg.reply_to ? { id: msg.reply_to, author: msg.reply_author, text: msg.reply_text } : null
     }));
-    
     res.json(messages);
-  } catch (err) {
-    res.status(500).json({ error: "Failed to fetch messages" });
-  }
-});
-
-/* ================== SEND MESSAGE (WITH POPULATED REPLY) ================== */
-app.post("/api/messages", auth, upload.single("file"), async (req, res) => {
-  try {
-    const author = req.user.userId;
-    const text = req.body.text || null;
-    const replyToId = req.body.replyTo || null;
-
-    let file_url = null, file_type = null, file_name = null, file_size = null;
-    if (req.file) {
-      file_url = `/uploads/${req.file.filename}`;
-      file_type = req.file.mimetype;
-      file_name = req.body.fileName || req.file.originalname;
-      file_size = req.body.fileSize || req.file.size;
-    }
-
-    const [result] = await db.execute(
-      "INSERT INTO messages (author, text, file_url, file_type, file_name, file_size, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [author, text, file_url, file_type, file_name, file_size, replyToId]
-    );
-
-    // Fetch the newly created message JOINED with the original message details
-    const [newMessageRows] = await db.execute(`
-      SELECT 
-        m1.*, 
-        m2.author AS reply_author, 
-        m2.text AS reply_text,
-        m2.file_name AS reply_file_name
-      FROM messages m1
-      LEFT JOIN messages m2 ON m1.reply_to = m2.id
-      WHERE m1.id = ?
-    `, [result.insertId]);
-
-    const msgData = newMessageRows[0];
-    const msg = {
-      id: msgData.id,
-      author: msgData.author,
-      text: msgData.text,
-      file_url: msgData.file_url,
-      file_type: msgData.file_type,
-      file_name: msgData.file_name,
-      time: msgData.time,
-      replyTo: msgData.reply_to ? {
-        id: msgData.reply_to,
-        author: msgData.reply_author,
-        text: msgData.reply_text,
-        file_name: msgData.reply_file_name
-      } : null
-    };
-
-    io.emit("newMessage", msg);
-    res.json(msg);
-  } catch (err) {
-    res.status(500).json({ error: "Failed to send message" });
-  }
-});
-
-/* ================== REMAINING ROUTES ================== */
-
-app.put("/api/messages/:id", auth, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { text } = req.body;
-    await db.execute("UPDATE messages SET text = ? WHERE id = ?", [text, id]);
-    const [rows] = await db.execute("SELECT * FROM messages WHERE id = ?", [id]);
-    io.emit("updateMessage", rows[0]);
-    res.json(rows[0]);
   } catch (err) { res.status(500).send(); }
 });
 
-app.delete("/api/messages/:id", auth, async (req, res) => {
+app.post("/api/messages", auth, upload.single("file"), async (req, res) => {
   try {
-    const { id } = req.params;
-    const [rows] = await db.execute("SELECT file_url FROM messages WHERE id = ?", [id]);
-    if (rows[0]?.file_url) {
-      const filePath = path.join(__dirname, rows[0].file_url);
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    const author = req.user.userId;
+    const { text, replyTo } = req.body;
+    let file = [null, null, null, null];
+    if (req.file) file = [`/uploads/${req.file.filename}`, req.file.mimetype, req.file.originalname, req.file.size];
+
+    const [result] = await db.execute("INSERT INTO messages (author, text, file_url, file_type, file_name, file_size, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)", [author, text || null, ...file, replyTo || null]);
+    const [newMsg] = await db.execute(`SELECT m1.*, m2.author AS reply_author, m2.text AS reply_text FROM messages m1 LEFT JOIN messages m2 ON m1.reply_to = m2.id WHERE m1.id = ?`, [result.insertId]);
+    
+    io.emit("newMessage", newMsg[0]);
+    res.json(newMsg[0]);
+  } catch (err) { res.status(500).send(); }
+});
+
+/* ================== FEED POSTS ROUTES ================== */
+app.get("/api/posts", auth, async (req, res) => {
+  try {
+    const [posts] = await db.execute("SELECT * FROM posts ORDER BY time DESC");
+    for (let post of posts) {
+      const [files] = await db.execute("SELECT file_url, file_type, file_name FROM post_files WHERE post_id = ?", [post.id]);
+      const [comments] = await db.execute(`SELECT c.*, r.author AS reply_to_name FROM comments c LEFT JOIN comments r ON c.reply_to = r.id WHERE c.post_id = ? ORDER BY c.time ASC`, [post.id]);
+      post.files = files;
+      post.comments = comments;
     }
-    await db.execute("DELETE FROM messages WHERE id = ?", [id]);
-    io.emit("deleteMessage", { id });
+    res.json(posts);
+  } catch (err) { res.status(500).json({ error: "Fetch error" }); }
+});
+
+app.post("/api/posts", auth, upload.array("files", 10), async (req, res) => {
+  try {
+    const author = req.user.userId;
+    const { text } = req.body;
+    const [result] = await db.execute("INSERT INTO posts (author, text) VALUES (?, ?)", [author, text || null]);
+    const postId = result.insertId;
+
+    if (req.files) {
+      for (let file of req.files) {
+        await db.execute("INSERT INTO post_files (post_id, file_url, file_type, file_name) VALUES (?, ?, ?, ?)", [postId, `/uploads/${file.filename}`, file.mimetype, file.originalname]);
+      }
+    }
+    const [newPost] = await db.execute("SELECT * FROM posts WHERE id = ?", [postId]);
+    newPost[0].files = req.files ? req.files.map(f => ({ file_url: `/uploads/${f.filename}`, file_type: f.mimetype })) : [];
+    newPost[0].comments = [];
+    io.emit("newPost", newPost[0]);
+    res.json(newPost[0]);
+  } catch (err) { res.status(500).send(); }
+});
+
+// EDIT POST
+app.put("/api/posts/:id", auth, async (req, res) => {
+  try {
+    const { text } = req.body;
+    const [rows] = await db.execute("SELECT author FROM posts WHERE id = ?", [req.params.id]);
+    if (!rows.length) return res.status(404).send();
+    if (rows[0].author !== req.user.userId) return res.status(403).send();
+
+    await db.execute("UPDATE posts SET text = ? WHERE id = ?", [text, req.params.id]);
     res.json({ success: true });
   } catch (err) { res.status(500).send(); }
 });
 
+// DELETE POST (Includes cleanup of files on disk)
+app.delete("/api/posts/:id", auth, async (req, res) => {
+  try {
+    const [rows] = await db.execute("SELECT author FROM posts WHERE id = ?", [req.params.id]);
+    if (!rows.length) return res.status(404).send();
+    if (rows[0].author !== req.user.userId) return res.status(403).send();
+
+    const [files] = await db.execute("SELECT file_url FROM post_files WHERE post_id = ?", [req.params.id]);
+    files.forEach(f => {
+      const p = path.join(__dirname, f.file_url);
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    });
+
+    await db.execute("DELETE FROM posts WHERE id = ?", [req.params.id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).send(); }
+});
+
+/* ================== COMMENT ROUTES ================== */
+app.post("/api/posts/:postId/comments", auth, async (req, res) => {
+  try {
+    const { text, replyTo } = req.body;
+    const [result] = await db.execute("INSERT INTO comments (post_id, author, text, reply_to) VALUES (?, ?, ?, ?)", [req.params.postId, req.user.userId, text, replyTo || null]);
+    const [comment] = await db.execute(`SELECT c.*, r.author AS reply_to_name FROM comments c LEFT JOIN comments r ON c.reply_to = r.id WHERE c.id = ?`, [result.insertId]);
+    res.json(comment[0]);
+  } catch (err) { res.status(500).send(); }
+});
+
+// EDIT COMMENT TEXT
+app.put("/api/comments/:id", auth, async (req, res) => {
+  try {
+    const { text } = req.body;
+    const commentId = req.params.id;
+    const userId = req.user.userId;
+
+    // Verify ownership
+    const [rows] = await db.execute("SELECT author FROM comments WHERE id = ?", [commentId]);
+    if (rows.length === 0) return res.status(404).json({ error: "Comment not found" });
+    if (rows[0].author !== userId) return res.status(403).json({ error: "Forbidden" });
+
+    await db.execute("UPDATE comments SET text = ? WHERE id = ?", [text, commentId]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Update failed" });
+  }
+});
+
+app.delete("/api/comments/:id", auth, async (req, res) => {
+  try {
+    await db.execute("DELETE FROM comments WHERE id = ? AND author = ?", [req.params.id, req.user.userId]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).send(); }
+});
+
+/* ================== SOCKET SETUP ================== */
 io.use((socket, next) => {
   try {
     const token = socket.handshake.auth.token;
@@ -267,10 +255,6 @@ io.use((socket, next) => {
     socket.user = decoded;
     next();
   } catch (err) { next(new Error("Auth error")); }
-});
-
-io.on("connection", (socket) => {
-  console.log("🔌 Connected:", socket.user.userId);
 });
 
 const PORT = process.env.PORT || 4000;
