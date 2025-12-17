@@ -30,7 +30,6 @@ app.use("/uploads", express.static("uploads"));
 const ALLOWED_USERS = ["sister1", "sister2", "sister3", "sister4"];
 let db;
 
-// Create uploads directory if it doesn't exist
 if (!fs.existsSync("uploads")) {
   fs.mkdirSync("uploads", { recursive: true });
 }
@@ -47,7 +46,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (req, file, cb) => cb(null, true),
 });
 
@@ -59,9 +58,7 @@ async function connectDB() {
     password: process.env.DB_PASSWORD,
   });
 
-  await temp.execute(
-    `CREATE DATABASE IF NOT EXISTS ${process.env.DB_NAME}`
-  );
+  await temp.execute(`CREATE DATABASE IF NOT EXISTS ${process.env.DB_NAME}`);
   await temp.end();
 
   db = await mysql.createConnection({
@@ -71,7 +68,6 @@ async function connectDB() {
     database: process.env.DB_NAME,
   });
 
-  // Create users table
   await db.execute(`
     CREATE TABLE IF NOT EXISTS users (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -80,7 +76,6 @@ async function connectDB() {
     )
   `);
 
-  // Create messages table with file metadata + reply_to
   await db.execute(`
     CREATE TABLE IF NOT EXISTS messages (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -102,18 +97,12 @@ async function connectDB() {
   await seedUsers();
 }
 
-/* ================== SEED USERS ================== */
 async function seedUsers() {
   const defaultPassword = "123456";
-
   for (const username of ALLOWED_USERS) {
     try {
       const hash = await bcrypt.hash(defaultPassword, 10);
-      await db.execute(
-        "INSERT IGNORE INTO users (username, password) VALUES (?, ?)",
-        [username, hash]
-      );
-      console.log("👤 Created/Updated user:", username);
+      await db.execute("INSERT IGNORE INTO users (username, password) VALUES (?, ?)", [username, hash]);
     } catch (err) {
       console.error("Error seeding user:", username, err);
     }
@@ -124,18 +113,13 @@ async function seedUsers() {
 function auth(req, res, next) {
   const header = req.headers.authorization;
   if (!header) return res.status(401).json({ error: "No token" });
-
   try {
     const token = header.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    if (!ALLOWED_USERS.includes(decoded.userId))
-      return res.status(403).json({ error: "Forbidden" });
-
+    if (!ALLOWED_USERS.includes(decoded.userId)) return res.status(403).json({ error: "Forbidden" });
     req.user = decoded;
     next();
   } catch (err) {
-    console.error("Auth error:", err);
     res.status(401).json({ error: "Invalid token" });
   }
 }
@@ -143,288 +127,154 @@ function auth(req, res, next) {
 /* ================== LOGIN ================== */
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
-
-  if (!ALLOWED_USERS.includes(username))
-    return res.status(403).json({ error: "Not allowed" });
-
+  if (!ALLOWED_USERS.includes(username)) return res.status(403).json({ error: "Not allowed" });
   try {
-    const [rows] = await db.execute(
-      "SELECT * FROM users WHERE username = ?",
-      [username]
-    );
-
-    if (!rows.length)
-      return res.status(401).json({ error: "Invalid credentials" });
-
+    const [rows] = await db.execute("SELECT * FROM users WHERE username = ?", [username]);
+    if (!rows.length) return res.status(401).json({ error: "Invalid credentials" });
     const valid = await bcrypt.compare(password, rows[0].password);
-    if (!valid)
-      return res.status(401).json({ error: "Invalid credentials" });
-
-    const token = jwt.sign(
-      { userId: username },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    res.json({ 
-      token, 
-      user: { username } 
-    });
+    if (!valid) return res.status(401).json({ error: "Invalid credentials" });
+    const token = jwt.sign({ userId: username }, process.env.JWT_SECRET, { expiresIn: "7d" });
+    res.json({ token, user: { username } });
   } catch (err) {
-    console.error("Login error:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
 
-/* ================== GET MESSAGES ================== */
+/* ================== GET MESSAGES (WITH JOIN FOR REPLIES) ================== */
 app.get("/api/messages", auth, async (req, res) => {
   try {
-    const [rows] = await db.execute(
-      "SELECT * FROM messages ORDER BY time ASC"
-    );
+    // JOIN query to get reply details (author and text)
+    const [rows] = await db.execute(`
+      SELECT 
+        m1.*, 
+        m2.author AS reply_author, 
+        m2.text AS reply_text,
+        m2.file_name AS reply_file_name
+      FROM messages m1
+      LEFT JOIN messages m2 ON m1.reply_to = m2.id
+      ORDER BY m1.time ASC
+    `);
     
     const messages = rows.map(msg => ({
       id: msg.id,
       author: msg.author,
       text: msg.text,
-      replyTo: msg.reply_to,
       file_url: msg.file_url,
       file_type: msg.file_type,
       file_name: msg.file_name,
-      file_size: msg.file_size,
-      time: msg.time
+      time: msg.time,
+      replyTo: msg.reply_to ? {
+        id: msg.reply_to,
+        author: msg.reply_author,
+        text: msg.reply_text,
+        file_name: msg.reply_file_name
+      } : null
     }));
     
     res.json(messages);
   } catch (err) {
-    console.error("Error fetching messages:", err);
     res.status(500).json({ error: "Failed to fetch messages" });
   }
 });
 
-/* ================== SEND MESSAGE (TEXT / FILE / AUDIO / REPLY) ================== */
-app.post(
-  "/api/messages",
-  auth,
-  upload.single("file"),
-  async (req, res) => {
-    try {
-      const author = req.user.userId;
-      const text = req.body.text || null;
-      const fileName = req.body.fileName || null;
-      const fileSize = req.body.fileSize || null;
-      const replyTo = req.body.replyTo || null;
-
-      if (!text && !req.file)
-        return res.status(400).json({ error: "Message or file required" });
-
-      let file_url = null;
-      let file_type = null;
-      let file_name = null;
-      let file_size = null;
-
-      if (req.file) {
-        file_url = `/uploads/${req.file.filename}`;
-        file_type = req.file.mimetype;
-        file_name = fileName || req.file.originalname;
-        file_size = fileSize || req.file.size;
-      }
-
-      const [result] = await db.execute(
-        "INSERT INTO messages (author, text, file_url, file_type, file_name, file_size, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [author, text, file_url, file_type, file_name, file_size, replyTo]
-      );
-
-      const [newMessage] = await db.execute(
-        "SELECT * FROM messages WHERE id = ?",
-        [result.insertId]
-      );
-
-      const msg = {
-        id: result.insertId,
-        author,
-        text,
-        replyTo,
-        file_url,
-        file_type,
-        file_name,
-        file_size,
-        time: new Date(newMessage[0].time)
-      };
-
-      io.emit("newMessage", msg);
-      res.json(msg);
-    } catch (err) {
-      console.error("Error sending message:", err);
-      res.status(500).json({ error: "Failed to send message" });
-    }
-  }
-);
-
-/* ================== GET FILE INFO ================== */
-app.get("/api/messages/:id/file", auth, async (req, res) => {
+/* ================== SEND MESSAGE (WITH POPULATED REPLY) ================== */
+app.post("/api/messages", auth, upload.single("file"), async (req, res) => {
   try {
-    const { id } = req.params;
-    
-    const [rows] = await db.execute(
-      "SELECT file_url, file_type, file_name, file_size FROM messages WHERE id = ?",
-      [id]
+    const author = req.user.userId;
+    const text = req.body.text || null;
+    const replyToId = req.body.replyTo || null;
+
+    let file_url = null, file_type = null, file_name = null, file_size = null;
+    if (req.file) {
+      file_url = `/uploads/${req.file.filename}`;
+      file_type = req.file.mimetype;
+      file_name = req.body.fileName || req.file.originalname;
+      file_size = req.body.fileSize || req.file.size;
+    }
+
+    const [result] = await db.execute(
+      "INSERT INTO messages (author, text, file_url, file_type, file_name, file_size, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [author, text, file_url, file_type, file_name, file_size, replyToId]
     );
 
-    if (!rows.length) return res.status(404).json({ error: "File not found" });
+    // Fetch the newly created message JOINED with the original message details
+    const [newMessageRows] = await db.execute(`
+      SELECT 
+        m1.*, 
+        m2.author AS reply_author, 
+        m2.text AS reply_text,
+        m2.file_name AS reply_file_name
+      FROM messages m1
+      LEFT JOIN messages m2 ON m1.reply_to = m2.id
+      WHERE m1.id = ?
+    `, [result.insertId]);
 
-    const file = rows[0];
-    const filePath = path.join(__dirname, file.file_url);
+    const msgData = newMessageRows[0];
+    const msg = {
+      id: msgData.id,
+      author: msgData.author,
+      text: msgData.text,
+      file_url: msgData.file_url,
+      file_type: msgData.file_type,
+      file_name: msgData.file_name,
+      time: msgData.time,
+      replyTo: msgData.reply_to ? {
+        id: msgData.reply_to,
+        author: msgData.reply_author,
+        text: msgData.reply_text,
+        file_name: msgData.reply_file_name
+      } : null
+    };
 
-    if (!fs.existsSync(filePath))
-      return res.status(404).json({ error: "File not found on server" });
-
-    res.json(file);
+    io.emit("newMessage", msg);
+    res.json(msg);
   } catch (err) {
-    console.error("Error getting file info:", err);
-    res.status(500).json({ error: "Failed to get file info" });
+    res.status(500).json({ error: "Failed to send message" });
   }
 });
 
-/* ================== EDIT MESSAGE ================== */
+/* ================== REMAINING ROUTES ================== */
+
 app.put("/api/messages/:id", auth, async (req, res) => {
   try {
     const { id } = req.params;
     const { text } = req.body;
-
-    if (!text?.trim())
-      return res.status(400).json({ error: "Text required" });
-
-    const [rows] = await db.execute(
-      "SELECT * FROM messages WHERE id = ?",
-      [id]
-    );
-
-    if (!rows.length) return res.status(404).json({ error: "Message not found" });
-    if (rows[0].author !== req.user.userId)
-      return res.status(403).json({ error: "Not allowed" });
-
     await db.execute("UPDATE messages SET text = ? WHERE id = ?", [text, id]);
-
-    const updated = { ...rows[0], text };
-    io.emit("updateMessage", updated);
-    res.json(updated);
-  } catch (err) {
-    console.error("Error editing message:", err);
-    res.status(500).json({ error: "Failed to edit message" });
-  }
+    const [rows] = await db.execute("SELECT * FROM messages WHERE id = ?", [id]);
+    io.emit("updateMessage", rows[0]);
+    res.json(rows[0]);
+  } catch (err) { res.status(500).send(); }
 });
 
-/* ================== DELETE MESSAGE ================== */
 app.delete("/api/messages/:id", auth, async (req, res) => {
   try {
     const { id } = req.params;
-    const [rows] = await db.execute("SELECT * FROM messages WHERE id = ?", [id]);
-
-    if (!rows.length) return res.status(404).json({ error: "Message not found" });
-    if (rows[0].author !== req.user.userId)
-      return res.status(403).json({ error: "Not allowed" });
-
-    if (rows[0].file_url) {
+    const [rows] = await db.execute("SELECT file_url FROM messages WHERE id = ?", [id]);
+    if (rows[0]?.file_url) {
       const filePath = path.join(__dirname, rows[0].file_url);
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
-
     await db.execute("DELETE FROM messages WHERE id = ?", [id]);
     io.emit("deleteMessage", { id });
     res.json({ success: true });
-  } catch (err) {
-    console.error("Error deleting message:", err);
-    res.status(500).json({ error: "Failed to delete message" });
-  }
+  } catch (err) { res.status(500).send(); }
 });
 
-/* ================== GET ALL FILES ================== */
-app.get("/api/files", auth, async (req, res) => {
-  try {
-    const [rows] = await db.execute(
-      "SELECT * FROM messages WHERE file_url IS NOT NULL ORDER BY time DESC"
-    );
-    
-    const files = rows.map(msg => ({
-      id: msg.id,
-      author: msg.author,
-      text: msg.text,
-      replyTo: msg.reply_to,
-      file_url: msg.file_url,
-      file_type: msg.file_type,
-      file_name: msg.file_name,
-      file_size: msg.file_size,
-      time: msg.time
-    }));
-    
-    res.json(files);
-  } catch (err) {
-    console.error("Error fetching files:", err);
-    res.status(500).json({ error: "Failed to fetch files" });
-  }
-});
-
-/* ================== SOCKET AUTH ================== */
 io.use((socket, next) => {
   try {
     const token = socket.handshake.auth.token;
-    if (!token) return next(new Error("Authentication error: No token"));
-    
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (!ALLOWED_USERS.includes(decoded.userId)) return next(new Error("Forbidden"));
-
     socket.user = decoded;
     next();
-  } catch (err) {
-    console.error("Socket auth error:", err);
-    next(new Error("Authentication error"));
-  }
+  } catch (err) { next(new Error("Auth error")); }
 });
 
 io.on("connection", (socket) => {
   console.log("🔌 Connected:", socket.user.userId);
-  
-  socket.on("disconnect", () => {
-    console.log("🔌 Disconnected:", socket.user.userId);
-  });
 });
 
-/* ================== CLEANUP OLD FILES ================== */
-async function cleanupOldFiles() {
-  try {
-    const cutoffDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const [oldMessages] = await db.execute(
-      "SELECT id, file_url FROM messages WHERE file_url IS NOT NULL AND time < ?",
-      [cutoffDate]
-    );
-    
-    for (const msg of oldMessages) {
-      const filePath = path.join(__dirname, msg.file_url);
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      await db.execute("DELETE FROM messages WHERE id = ?", [msg.id]);
-    }
-    
-    console.log(`🧹 Cleaned up ${oldMessages.length} old files`);
-  } catch (err) {
-    console.error("Cleanup error:", err);
-  }
-}
-setInterval(cleanupOldFiles, 60 * 60 * 1000);
-
-/* ================== HEALTH CHECK ================== */
-app.get("/health", (req, res) => {
-  res.json({ 
-    status: "ok", 
-    timestamp: new Date().toISOString(),
-    uploads: fs.readdirSync("uploads").length
-  });
-});
-
-/* ================== START ================== */
 const PORT = process.env.PORT || 4000;
-
 server.listen(PORT, async () => {
   await connectDB();
-  console.log(`🚀 Backend running on http://localhost:${PORT}`);
+  console.log(`🚀 Backend running on port ${PORT}`);
 });
