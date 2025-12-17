@@ -18,7 +18,6 @@ import {
   FiDownload,
   FiPlay,
   FiPause,
-  FiFile,
   FiMoreVertical,
   FiCornerUpLeft,
 } from "react-icons/fi";
@@ -35,8 +34,7 @@ const getFileType = (fileType, fileName) => {
     if (fileType.startsWith("video/")) return "video";
     if (fileType.startsWith("audio/")) return "audio";
     if (fileType.includes("pdf")) return "pdf";
-    if (fileType.includes("word") || fileType.includes("document"))
-      return "document";
+    if (fileType.includes("word") || fileType.includes("document")) return "document";
   }
   const ext = fileName?.split(".").pop()?.toLowerCase();
   if (["jpg", "jpeg", "png", "webp"].includes(ext)) return "image";
@@ -96,8 +94,8 @@ const AudioPlayer = memo(({ src, isMine }) => {
         </button>
         <div className="flex-1">
           <div className="flex justify-between text-xs mb-1">
-            <span className="font-medium">Voice Note</span>
-            <span>{formatTime(currentTime)} / {formatTime(duration)}</span>
+            <span className="font-medium text-gray-700">Voice Note</span>
+            <span className="text-gray-500">{formatTime(currentTime)} / {formatTime(duration)}</span>
           </div>
           <div className="h-1 bg-gray-300 rounded-full relative">
             <div className={`absolute h-full rounded-full ${isMine ? "bg-purple-500" : "bg-gray-600"}`} style={{ width: `${(currentTime / duration) * 100 || 0}%` }} />
@@ -108,22 +106,20 @@ const AudioPlayer = memo(({ src, isMine }) => {
   );
 });
 
-const MessageItem = memo(({ message, isMine, editingId, setEditingId, setEditText, editText, onSave, onDelete, renderFile, setReplyTo }) => {
+const MessageItem = memo(({ message, isMine, editingId, setEditingId, setEditText, editText, onSave, onDelete, renderFile, setReplyTo, onReplyClick }) => {
   const letter = message.author?.[0]?.toUpperCase();
   const isEditing = editingId === message.id;
   const [openMenu, setOpenMenu] = useState(false);
   const menuRef = useRef(null);
 
   useEffect(() => {
-    const closeMenu = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setOpenMenu(false);
-    };
+    const closeMenu = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setOpenMenu(false); };
     document.addEventListener("mousedown", closeMenu);
     return () => document.removeEventListener("mousedown", closeMenu);
   }, []);
 
   return (
-    <div className={`flex gap-2 w-full ${isMine ? "justify-end" : "justify-start"}`}>
+    <div id={`msg-${message.id}`} className={`flex gap-2 w-full transition-all duration-300 ${isMine ? "justify-end" : "justify-start"}`}>
       {!isMine && <div className="w-8 h-8 rounded-full bg-purple-400 text-white flex items-center justify-center font-bold shrink-0">{letter}</div>}
 
       <div className={`relative max-w-[85%] sm:max-w-[70%] p-3 rounded-2xl shadow break-words ${isMine ? "bg-purple-500 text-white rounded-br-none" : "bg-white text-gray-900 rounded-bl-none"}`}>
@@ -155,7 +151,10 @@ const MessageItem = memo(({ message, isMine, editingId, setEditingId, setEditTex
         {!isMine && <p className="text-xs font-semibold opacity-80 mb-1">{message.author}</p>}
 
         {message.replyTo && (
-          <div className={`mb-2 p-2 rounded border-l-4 text-xs ${isMine ? "bg-white/20 border-white/60" : "bg-gray-100 border-purple-500"}`}>
+          <div 
+            onClick={() => onReplyClick(message.replyTo.id)}
+            className={`mb-2 p-2 rounded border-l-4 text-xs cursor-pointer hover:bg-black/5 transition-colors ${isMine ? "bg-white/20 border-white/60" : "bg-gray-100 border-purple-500"}`}
+          >
             <p className="font-semibold opacity-80">{message.replyTo.author}</p>
             <p className="truncate opacity-80">{message.replyTo.text || message.replyTo.file_name || "Original message"}</p>
           </div>
@@ -228,32 +227,30 @@ export default function MessageBoard() {
     return () => document.removeEventListener("mousedown", closePicker);
   }, []);
 
+  const scrollToMessage = useCallback((msgId) => {
+    const target = document.getElementById(`msg-${msgId}`);
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.classList.add("message-highlight");
+      setTimeout(() => target.classList.remove("message-highlight"), 2000);
+    }
+  }, []);
+
   const sendMessage = async () => {
     if (!text.trim() && !replyTo) return;
-
-    // Preserve the reply metadata for local state injection
     const currentReplyData = replyTo;
-
-    const payload = {
-      text: text.trim(),
-      replyTo: currentReplyData ? currentReplyData.id : null, 
-    };
+    const payload = { text: text.trim(), replyTo: currentReplyData ? currentReplyData.id : null };
 
     try {
       const saved = await addMessage(payload);
       if (saved) {
-        // Manually inject the reply details into the saved object for immediate UI display
-        const messageWithLocalReply = {
-          ...saved,
-          replyTo: currentReplyData
-        };
-        setMessages((prev) => [...prev, messageWithLocalReply]);
+        // Manually inject full reply metadata so UI shows text instead of "Attachment"
+        const messageWithMetadata = { ...saved, replyTo: currentReplyData };
+        setMessages((prev) => [...prev, messageWithMetadata]);
         setText("");
         setReplyTo(null);
       }
-    } catch (err) {
-      console.error("Failed to send message:", err);
-    }
+    } catch (err) { console.error(err); }
   };
 
   const sendFile = useCallback(async (file) => {
@@ -331,7 +328,20 @@ export default function MessageBoard() {
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         <div className="max-w-3xl mx-auto flex flex-col gap-3">
           {messages.map((m) => (
-            <MessageItem key={m.id} message={m} isMine={m.author === username} editingId={editingId} setEditingId={setEditingId} setEditText={setEditText} editText={editText} onSave={saveEdit} onDelete={deleteMsg} renderFile={renderFileContent} setReplyTo={setReplyTo} />
+            <MessageItem 
+              key={m.id} 
+              message={m} 
+              isMine={m.author === username} 
+              editingId={editingId} 
+              setEditingId={setEditingId} 
+              setEditText={setEditText} 
+              editText={editText} 
+              onSave={saveEdit} 
+              onDelete={deleteMsg} 
+              renderFile={renderFileContent} 
+              setReplyTo={setReplyTo} 
+              onReplyClick={scrollToMessage}
+            />
           ))}
           <div ref={messagesEndRef} />
         </div>
