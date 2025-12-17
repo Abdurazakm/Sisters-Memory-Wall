@@ -149,6 +149,8 @@ export default function FeedPage() {
 /* ---------------- DUA REQUEST CARD ---------------- */
 function DuaCard({ post, currentUser, onRefresh, isMine }) {
   const [showMenu, setShowMenu] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(post.text);
   const prayedByMe = post.confirmations?.some(c => c.username === currentUser);
 
   const handleAmeen = async () => {
@@ -164,11 +166,20 @@ function DuaCard({ post, currentUser, onRefresh, isMine }) {
     } catch (err) { console.error(err); }
   };
 
+  const handleSaveEdit = async () => {
+    await updatePost(post.id, editText);
+    setIsEditing(false);
+    onRefresh();
+  };
+
   return (
     <div className="bg-gradient-to-br from-emerald-50 to-white border-2 border-emerald-100 rounded-3xl p-6 shadow-sm mb-6 relative overflow-hidden transition-all hover:shadow-md">
-      <div className="absolute top-0 right-0 p-4 opacity-10"><FaPrayingHands size={80} className="text-emerald-900" /></div>
+      {/* Background Icon */}
+      <div className="absolute top-0 right-0 p-4 opacity-10">
+        <FaPrayingHands size={80} className="text-emerald-900" />
+      </div>
       
-      <div className="flex justify-between items-start mb-4 relative z-10">
+      <div className="flex justify-between items-start mb-4 relative z-20">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-white shadow-lg shadow-emerald-200">
             <FaPrayingHands size={24} />
@@ -180,13 +191,29 @@ function DuaCard({ post, currentUser, onRefresh, isMine }) {
         </div>
 
         {isMine && (
-          <div className="relative">
-            <button onClick={() => setShowMenu(!showMenu)} className="p-2 text-emerald-600 hover:bg-emerald-100 rounded-full transition-colors"><FiMoreVertical size={20}/></button>
+          <div className="relative z-30">
+            <button 
+              onClick={() => setShowMenu(!showMenu)} 
+              className="p-2 text-emerald-600 hover:bg-emerald-100 rounded-full transition-colors"
+            >
+              <FiMoreVertical size={20}/>
+            </button>
             {showMenu && (
               <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)}></div>
-                <div className="absolute right-0 mt-2 w-32 bg-white border rounded-xl shadow-lg z-20 overflow-hidden">
-                   <button onClick={() => { if(window.confirm("Delete this request?")) deletePost(post.id).then(onRefresh); }} className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-600 hover:bg-red-50 font-bold"><FiTrash2 size={14} /> Delete</button>
+                <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)}></div>
+                <div className="absolute right-0 mt-2 w-32 bg-white border rounded-xl shadow-xl z-50 overflow-hidden">
+                   <button 
+                    onClick={() => { setIsEditing(true); setShowMenu(false); }} 
+                    className="w-full flex items-center gap-2 px-4 py-3 text-sm text-gray-700 hover:bg-emerald-50 font-bold border-b border-gray-50"
+                   >
+                    <FiEdit2 size={14} /> Edit
+                   </button>
+                   <button 
+                    onClick={() => { if(window.confirm("Delete this request?")) deletePost(post.id).then(onRefresh); }} 
+                    className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-600 hover:bg-red-50 font-bold"
+                   >
+                    <FiTrash2 size={14} /> Delete
+                   </button>
                 </div>
               </>
             )}
@@ -194,19 +221,37 @@ function DuaCard({ post, currentUser, onRefresh, isMine }) {
         )}
       </div>
 
-      <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 mb-6 border border-emerald-50 relative z-10 shadow-inner">
-        <p className="text-gray-800 text-xl italic font-serif leading-relaxed text-center">"{post.text}"</p>
+      {/* TEXT CONTENT / EDIT AREA */}
+      <div className="relative z-10 mb-6">
+        {isEditing ? (
+          <div className="bg-white rounded-2xl p-4 border-2 border-emerald-200 shadow-inner">
+            <textarea 
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              className="w-full border-none focus:ring-0 text-gray-800 text-lg italic font-serif resize-none outline-none"
+              rows="3"
+            />
+            <div className="flex justify-end gap-2 mt-2 pt-2 border-t border-emerald-50">
+               <button onClick={() => setIsEditing(false)} className="text-xs font-bold text-gray-400 px-3 py-1">Cancel</button>
+               <button onClick={handleSaveEdit} className="bg-emerald-600 text-white text-xs font-bold px-4 py-1 rounded-full flex items-center gap-1 shadow-sm"><FiCheck /> Save</button>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-emerald-50 shadow-inner">
+            <p className="text-gray-800 text-xl italic font-serif leading-relaxed text-center">"{post.text}"</p>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-emerald-100 pt-5 relative z-10">
         <button 
           onClick={handleAmeen}
-          disabled={prayedByMe}
+          disabled={prayedByMe || isEditing}
           className={`w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3 rounded-full font-bold transition-all shadow-md active:scale-95 ${
             prayedByMe 
             ? "bg-emerald-100 text-emerald-600 border border-emerald-200" 
             : "bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-emerald-200"
-          }`}
+          } ${isEditing ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           {prayedByMe ? <FiCheckCircle size={20} /> : <FaPrayingHands size={20} />}
           {prayedByMe ? "Accepted" : "I have made Dua"}
@@ -229,7 +274,6 @@ function DuaCard({ post, currentUser, onRefresh, isMine }) {
     </div>
   );
 }
-
 /* ---------------- POST CARD COMPONENT ---------------- */
 function PostCard({ post, isMine, onRefresh, onOpenMedia }) {
   const [showComments, setShowComments] = useState(false);
