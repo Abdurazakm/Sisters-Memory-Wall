@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import { useNavigate } from "react-router-dom";
+import { FiUser, FiLock, FiLoader, FiHeart } from "react-icons/fi"; // Added icons
 
 export default function Login({ setToken }) {
-  // State for managing UI feedback
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
-  
   const navigate = useNavigate();
 
   async function submit(e) {
@@ -13,7 +12,6 @@ export default function Login({ setToken }) {
     setError(null);
     setLoading(true);
     
-    // Get form values using the input names
     const username = e.target.u.value;
     const password = e.target.p.value;
 
@@ -27,23 +25,16 @@ export default function Login({ setToken }) {
       const data = await res.json();
       
       if (!res.ok) {
-        // Handle error response from the backend (e.g., Invalid credentials)
         setError(data.error || "Login failed");
         return;
       }
       
-      // Success: Save token and username
       localStorage.setItem("token", data.token);
-      localStorage.setItem("username", username); // 👈 Important: Save username for author
-      
-      // Update state in App.js to trigger a re-render
+      localStorage.setItem("username", username);
       setToken(data.token); 
-      
-      // Navigate to the protected page after successful login
       navigate("/messages", { replace: true });
 
     } catch (err) {
-      // Handle network or other unexpected errors
       console.error("Login failed:", err);
       setError("An unexpected error occurred. Please try again.");
     } finally {
@@ -52,52 +43,79 @@ export default function Login({ setToken }) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8 bg-white p-10 rounded-xl shadow-2xl">
-        <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-          Sign in to the Memory Wall
-        </h2>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-100 via-white to-pink-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8 bg-white/80 backdrop-blur-xl p-10 rounded-[2.5rem] shadow-2xl border border-white relative overflow-hidden">
         
-        <form className="mt-8 space-y-6" onSubmit={submit}>
-          <div className="rounded-md shadow-sm -space-y-px">
-            <div>
+        {/* Decorative Top Bar */}
+        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-500 via-pink-500 to-emerald-500"></div>
+
+        <div className="text-center">
+          <div className="mx-auto h-16 w-16 bg-purple-100 rounded-2xl flex items-center justify-center text-purple-600 mb-4 shadow-inner">
+            <FiHeart size={32} />
+          </div>
+          <h2 className="text-3xl font-black text-gray-900 tracking-tight">
+            Welcome Back
+          </h2>
+          <p className="mt-2 text-sm text-gray-500 font-medium">
+            Sign in to the Sisters Memory Wall
+          </p>
+        </div>
+        
+        <form className="mt-8 space-y-4" onSubmit={submit}>
+          <div className="space-y-3">
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400">
+                <FiUser />
+              </div>
               <input
                 id="username"
                 name="u"
                 type="text"
                 required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 focus:z-10 sm:text-sm"
-                placeholder="Username (e.g., sister1)"
+                className="block w-full pl-11 pr-4 py-4 border border-gray-100 rounded-2xl bg-gray-50/50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white transition-all sm:text-sm font-bold"
+                placeholder="Username"
               />
             </div>
-            <div>
+
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400">
+                <FiLock />
+              </div>
               <input
                 id="password"
                 name="p"
                 type="password"
                 required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-purple-500 focus:border-purple-500 focus:z-10 sm:text-sm"
+                className="block w-full pl-11 pr-4 py-4 border border-gray-100 rounded-2xl bg-gray-50/50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white transition-all sm:text-sm font-bold"
                 placeholder="Password"
               />
             </div>
           </div>
           
           {error && (
-            <div className="text-red-600 text-sm text-center font-medium p-2 bg-red-100 border border-red-300 rounded-md">
+            <div className="text-red-500 text-xs text-center font-black uppercase tracking-widest p-3 bg-red-50 rounded-2xl border border-red-100 animate-shake">
               {error}
             </div>
           )}
 
-          <div>
+          <div className="pt-2">
             <button
               type="submit"
               disabled={loading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:bg-purple-400"
+              className="group relative w-full flex justify-center items-center gap-2 py-4 px-4 border border-transparent text-sm font-black uppercase tracking-widest rounded-2xl text-white bg-purple-600 hover:bg-purple-700 shadow-lg shadow-purple-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:bg-purple-300 transition-all active:scale-95"
             >
-              {loading ? "Logging in..." : "Login"}
+              {loading ? (
+                <FiLoader className="animate-spin" size={20} />
+              ) : (
+                "Enter Wall"
+              )}
             </button>
           </div>
         </form>
+
+        <p className="text-center text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-8">
+          Dedicated to our beloved sisters
+        </p>
       </div>
     </div>
   );

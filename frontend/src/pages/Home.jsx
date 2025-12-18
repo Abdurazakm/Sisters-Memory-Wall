@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import Header from "../components/Header";
 import SisterCard from "../components/SisterCard";
 import DuaSection from "../components/DuaSection";
+import BottomNav from "../components/BottomNav";
 import sistersData from "../data/sisters"; 
 import { useNavigate } from "react-router-dom";
 import { 
@@ -28,7 +29,7 @@ export default function Home() {
     try {
       if (currentUser) {
         const profile = await getUserProfile(currentUser);
-        if (profile.profile_photo) {
+        if (profile?.profile_photo) {
           const fullUrl = profile.profile_photo.startsWith('http') 
             ? profile.profile_photo 
             : `${BACKEND_URL}${profile.profile_photo}`;
@@ -77,22 +78,21 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-emerald-50 p-3 md:p-8">
+    /* Added pb-32 to provide clearance for the BottomNav */
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-emerald-50 p-3 md:p-8 pb-32">
       <div className="max-w-6xl mx-auto">
         
         <Header />
 
         {/* --- QUICK ACTION DASHBOARD --- */}
-        {/* Adjusted padding and gap for mobile (p-4 and gap-3) */}
         <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 mb-8 bg-white/80 backdrop-blur-md p-4 rounded-3xl shadow-sm border border-purple-100 relative z-40">
           
-          {/* Action Buttons: Stack on mobile, row on desktop */}
           <div className="flex flex-col xs:flex-row flex-wrap gap-2 sm:gap-3">
             <button
               onClick={() => navigate("/feed")}
               className="flex-1 group flex items-center justify-center sm:justify-start gap-2 bg-purple-600 text-white px-5 py-3 rounded-2xl hover:bg-purple-700 transition-all shadow-md active:scale-95"
             >
-              <FiLayout className="transition-transform" /> 
+              <FiLayout /> 
               <span className="font-bold text-sm">Feed</span>
             </button>
             
@@ -134,7 +134,6 @@ export default function Home() {
               <FiChevronDown className={`text-gray-400 transition-transform duration-300 ${showDropdown ? 'rotate-180' : ''}`} />
             </button>
 
-            {/* Dropdown Menu - Mobile optimized positioning */}
             {showDropdown && (
               <div className="absolute right-0 left-0 sm:left-auto mt-2 sm:w-56 bg-white rounded-2xl shadow-2xl border border-gray-100 z-[100] py-2 animate-in fade-in slide-in-from-top-2 ring-1 ring-black/5">
                 <button 
@@ -198,7 +197,7 @@ export default function Home() {
           ) : (
             <div 
               onClick={() => navigate("/feed", { state: { openDuaModal: true } })}
-              className="text-center py-10 bg-white/40 rounded-3xl border-2 border-dashed border-purple-200"
+              className="text-center py-10 bg-white/40 rounded-3xl border-2 border-dashed border-purple-200 cursor-pointer"
             >
               <FiPlusCircle className="text-purple-300 mx-auto mb-2" size={28} />
               <p className="text-gray-500 text-sm font-bold">Ask for a Dua</p>
@@ -218,7 +217,6 @@ export default function Home() {
               </span>
           </div>
           
-          {/* Grid: 1 column on phone, 2 on tablet, 3 on desktop */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {sistersData.map((s) => (
               <SisterCard key={s.id} sister={s} />
@@ -235,6 +233,9 @@ export default function Home() {
         </div>
 
       </div>
+
+      {/* REUSABLE NAVIGATION */}
+      <BottomNav />
     </div>
   );
 }

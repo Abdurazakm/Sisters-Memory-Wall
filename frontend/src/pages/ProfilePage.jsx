@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate, useParams } from "react-router-dom"; // Added useParams
+import { useNavigate, useParams } from "react-router-dom";
 import { getPosts, getUserProfile, updateProfilePhoto } from "../api";
 import { 
   FiCamera, FiChevronLeft, FiChevronRight, FiEdit, 
@@ -7,19 +7,18 @@ import {
 } from "react-icons/fi";
 import DuaCard from "../components/DuaCard";
 import PostCard from "../components/PostCard";
+import BottomNav from "../components/BottomNav"; // Import BottomNav
 
 const BACKEND_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const { username: urlUsername } = useParams(); // Get username from URL (e.g., /profile/Sara)
+  const { username: urlUsername } = useParams(); 
   const loggedInUser = localStorage.getItem("username");
   
-  // Logic to determine if this is the user's OWN profile
   const isOwnProfile = !urlUsername || urlUsername === loggedInUser;
   const targetUser = urlUsername || loggedInUser;
 
-  // State
   const [myPosts, setMyPosts] = useState([]);
   const [photoHistory, setPhotoHistory] = useState([]);
   const [bio, setBio] = useState("");
@@ -29,25 +28,21 @@ export default function ProfilePage() {
 
   useEffect(() => {
     loadProfileData();
-  }, [urlUsername]); // Reload if the URL username changes
+  }, [urlUsername]);
 
   const loadProfileData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch Profile for the TARGET user
       const profile = await getUserProfile(targetUser);
-      
       setBio(profile.bio || ""); 
       
       const historyArr = [];
-      // Current photo
       if (profile.profile_photo) {
         historyArr.push(`${BACKEND_URL}${profile.profile_photo}`);
       } else {
         historyArr.push(`https://ui-avatars.com/api/?name=${targetUser}&background=random`);
       }
 
-      // Historical photos
       if (profile.history && profile.history.length > 0) {
         profile.history.forEach(h => {
           historyArr.push(`${BACKEND_URL}${h.photo_url}`);
@@ -55,7 +50,6 @@ export default function ProfilePage() {
       }
       setPhotoHistory(historyArr);
 
-      // 2. Fetch Posts for the TARGET user
       const allPosts = await getPosts();
       const filtered = (allPosts || []).filter(p => p.author === targetUser);
       setMyPosts(filtered);
@@ -67,7 +61,7 @@ export default function ProfilePage() {
   };
 
   const handlePhotoUpload = async (e) => {
-    if (!isOwnProfile) return; // Guard
+    if (!isOwnProfile) return;
     const file = e.target.files[0];
     if (!file) return;
 
@@ -99,15 +93,17 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
+    /* Added pb-32 to create space for BottomNav */
+    <div className="min-h-screen bg-gray-50 pb-32">
+      
       {/* --- TOP HEADER NAVIGATION --- */}
       <div className="bg-white border-b sticky top-0 z-30 px-4 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-500 hover:text-purple-600 font-bold transition-colors">
             <FiArrowLeft size={20} /> Back
           </button>
-          <h1 className="text-lg font-black text-gray-800 tracking-tight">
-             {isOwnProfile ? "My Profile" : `${targetUser}'s Profile`}
+          <h1 className="text-lg font-black text-gray-800 tracking-tight uppercase">
+             {isOwnProfile ? "My Profile" : `${targetUser}`}
           </h1>
           <div className="w-10"></div> 
         </div>
@@ -121,7 +117,6 @@ export default function ProfilePage() {
             <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-purple-100 text-center relative overflow-hidden">
               <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-500 to-indigo-500"></div>
               
-              {/* Photo Slider */}
               <div className="relative group mx-auto w-40 h-40 mb-6">
                 <div className="w-full h-full rounded-[2rem] overflow-hidden border-4 border-white shadow-xl bg-gray-100 relative">
                   {uploading && (
@@ -136,7 +131,6 @@ export default function ProfilePage() {
                   />
                 </div>
                 
-                {/* Upload Button - ONLY SHOW IF OWN PROFILE */}
                 {isOwnProfile && (
                     <label className="absolute bottom-2 right-2 bg-purple-600 p-3 rounded-2xl text-white shadow-lg cursor-pointer hover:scale-110 active:scale-95 transition-all z-20">
                     <FiCamera size={20} />
@@ -144,47 +138,43 @@ export default function ProfilePage() {
                     </label>
                 )}
 
-                {/* Navigation Arrows */}
                 {photoHistory.length > 1 && (
                   <>
-                    <button onClick={prevPhoto} className="absolute left-[-20px] top-1/2 -translate-y-1/2 bg-white/90 p-2 rounded-full shadow-md text-gray-400 hover:text-purple-600 opacity-100 md:opacity-0 group-hover:opacity-100 transition-all">
+                    <button onClick={prevPhoto} className="absolute left-[-20px] top-1/2 -translate-y-1/2 bg-white/90 p-2 rounded-full shadow-md text-gray-400 hover:text-purple-600 transition-all">
                       <FiChevronLeft size={20}/>
                     </button>
-                    <button onClick={nextPhoto} className="absolute right-[-20px] top-1/2 -translate-y-1/2 bg-white/90 p-2 rounded-full shadow-md text-gray-400 hover:text-purple-600 opacity-100 md:opacity-0 group-hover:opacity-100 transition-all">
+                    <button onClick={nextPhoto} className="absolute right-[-20px] top-1/2 -translate-y-1/2 bg-white/90 p-2 rounded-full shadow-md text-gray-400 hover:text-purple-600 transition-all">
                       <FiChevronRight size={20}/>
                     </button>
                   </>
                 )}
               </div>
 
-              <h2 className="text-2xl font-black text-gray-800">{targetUser}</h2>
+              <h2 className="text-2xl font-black text-gray-800 uppercase tracking-tight">{targetUser}</h2>
               
-              {/* BIO SECTION */}
               <div className="mt-2 mb-6">
                 {bio ? (
                   <p className="text-sm text-purple-600 font-bold leading-relaxed px-4 italic">
                     <FiHeart className="inline mb-1 mr-1" size={12}/> {bio}
                   </p>
                 ) : (
-                  <p className="text-xs text-gray-400 font-medium italic">"Part of the Sisterhood"</p>
+                  <p className="text-xs text-gray-400 font-medium italic">"Sisterhood Member"</p>
                 )}
               </div>
               
-              {/* Edit Button - ONLY SHOW IF OWN PROFILE */}
               {isOwnProfile && (
                 <button 
                     onClick={() => navigate("/settings")}
-                    className="w-full py-3 bg-gray-50 text-gray-600 rounded-2xl font-bold text-sm hover:bg-purple-50 hover:text-purple-600 transition-all flex items-center justify-center gap-2"
+                    className="w-full py-3 bg-gray-50 text-gray-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-purple-50 hover:text-purple-600 transition-all flex items-center justify-center gap-2"
                 >
                     <FiEdit size={16} /> Edit Details
                 </button>
               )}
             </div>
 
-            {/* Photo Journey List */}
             <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
-              <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                <FiClock /> Photo Journey
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                <FiClock /> Journey
               </h3>
               <div className="grid grid-cols-3 gap-2">
                 {photoHistory.map((url, i) => (
@@ -203,10 +193,10 @@ export default function ProfilePage() {
           {/* --- RIGHT COLUMN: USER FEED --- */}
           <div className="md:col-span-2 space-y-6">
             <div className="flex items-center justify-between px-2">
-              <h2 className="text-xl font-black text-gray-800 flex items-center gap-2">
-                <FiGrid className="text-purple-500" /> Contributions
+              <h2 className="text-xl font-black text-gray-800 flex items-center gap-3">
+                <FiGrid className="text-purple-500" /> <span className="uppercase tracking-tight text-sm">Contributions</span>
               </h2>
-              <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter">
+              <span className="bg-purple-600 text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase">
                 {myPosts.length} Posts
               </span>
             </div>
@@ -233,13 +223,19 @@ export default function ProfilePage() {
                 ))}
               </div>
             ) : (
-              <div className="bg-white rounded-[2rem] border-2 border-dashed border-gray-200 py-20 text-center">
-                <p className="text-gray-400 font-bold">No shared memories yet.</p>
+              <div className="bg-white rounded-[2.5rem] border-2 border-dashed border-gray-200 py-24 text-center">
+                <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <FiGrid className="text-gray-300" size={24} />
+                </div>
+                <p className="text-gray-400 font-bold text-sm uppercase tracking-widest">No Posts Yet</p>
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {/* REUSABLE BOTTOM NAV */}
+      <BottomNav />
     </div>
   );
 }
