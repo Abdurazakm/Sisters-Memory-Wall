@@ -88,5 +88,15 @@ export const updateComment = async (id, text) => {
   const res = await api.put(`/api/comments/${id}`, { text });
   return res.data;
 };
+export const sayAminToDua = async (confirmationId) => {
+  const response = await fetch(`${BACKEND_URL}/api/dua/thank/${confirmationId}`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${localStorage.getItem("token")}`,
+      "Content-Type": "application/json",
+    },
+  });
+  return response.json();
+};
 
 export default api;
