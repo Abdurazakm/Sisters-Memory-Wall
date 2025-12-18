@@ -69,11 +69,21 @@ async function connectDB() {
   // Chat Messages
   await db.execute(`CREATE TABLE IF NOT EXISTS messages (id INT AUTO_INCREMENT PRIMARY KEY, author VARCHAR(100), text TEXT, file_url VARCHAR(500), file_type VARCHAR(100), file_name VARCHAR(255), file_size INT, reply_to INT NULL, time DATETIME DEFAULT CURRENT_TIMESTAMP)`);
 
-  // Feed Posts (UPDATED with TYPE)
+  // Feed Posts
   await db.execute(`CREATE TABLE IF NOT EXISTS posts (id INT AUTO_INCREMENT PRIMARY KEY, author VARCHAR(100), text TEXT, type ENUM('post', 'dua') DEFAULT 'post', time DATETIME DEFAULT CURRENT_TIMESTAMP)`);
 
-  // Dua Confirmations (NEW TABLE)
-  await db.execute(`CREATE TABLE IF NOT EXISTS dua_confirmations (id INT AUTO_INCREMENT PRIMARY KEY, dua_id INT, user_id VARCHAR(100), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY unique_dua_user (dua_id, user_id), FOREIGN KEY (dua_id) REFERENCES posts(id) ON DELETE CASCADE)`);
+  // Dua Confirmations (UPDATED WITH is_thanked)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS dua_confirmations (
+      id INT AUTO_INCREMENT PRIMARY KEY, 
+      dua_id INT, 
+      user_id VARCHAR(100), 
+      is_thanked BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
+      UNIQUE KEY unique_dua_user (dua_id, user_id), 
+      FOREIGN KEY (dua_id) REFERENCES posts(id) ON DELETE CASCADE
+    )
+  `);
 
   // Multiple Files for Posts
   await db.execute(`CREATE TABLE IF NOT EXISTS post_files (id INT AUTO_INCREMENT PRIMARY KEY, post_id INT, file_url VARCHAR(500), file_type VARCHAR(100), file_name VARCHAR(255), FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE)`);
@@ -125,10 +135,16 @@ app.post("/api/login", async (req, res) => {
 /* ================== FEED POSTS ROUTES ================== */
 app.get("/api/posts", auth, async (req, res) => {
   try {
-    // Advanced Query: Get posts and a JSON array of everyone who confirmed (Ameen)
+    // UPDATED QUERY: Includes 'id' and 'is_thanked' in the JSON object
     const [posts] = await db.execute(`
       SELECT p.*, 
-      (SELECT JSON_ARRAYAGG(JSON_OBJECT('username', dc.user_id)) 
+      (SELECT JSON_ARRAYAGG(
+          JSON_OBJECT(
+            'id', dc.id, 
+            'username', dc.user_id, 
+            'is_thanked', dc.is_thanked
+          )
+        ) 
        FROM dua_confirmations dc 
        WHERE dc.dua_id = p.id) AS confirmations
       FROM posts p 
@@ -140,7 +156,7 @@ app.get("/api/posts", auth, async (req, res) => {
       const [comments] = await db.execute(`SELECT c.*, r.author AS reply_to_name FROM comments c LEFT JOIN comments r ON c.reply_to = r.id WHERE c.post_id = ? ORDER BY c.time ASC`, [post.id]);
       post.files = files;
       post.comments = comments;
-      post.confirmations = post.confirmations || []; // Ensure it's an array
+      post.confirmations = post.confirmations || []; 
     }
     res.json(posts);
   } catch (err) { 
@@ -152,7 +168,7 @@ app.get("/api/posts", auth, async (req, res) => {
 app.post("/api/posts", auth, upload.array("files", 10), async (req, res) => {
   try {
     const author = req.user.userId;
-    const { text, type } = req.body; // type is 'post' or 'dua'
+    const { text, type } = req.body; 
     const [result] = await db.execute("INSERT INTO posts (author, text, type) VALUES (?, ?, ?)", [author, text || null, type || 'post']);
     const postId = result.insertId;
 
@@ -162,7 +178,6 @@ app.post("/api/posts", auth, upload.array("files", 10), async (req, res) => {
       }
     }
     
-    // Notify all sisters about new content
     io.emit("newPost", { id: postId, author, text, type: type || 'post' });
     res.json({ success: true, id: postId });
   } catch (err) { res.status(500).send(); }
@@ -174,7 +189,6 @@ app.post("/api/dua/confirm/:id", auth, async (req, res) => {
     const duaId = req.params.id;
     const userId = req.user.userId;
 
-    // Use INSERT IGNORE to prevent multiple clicks from erroring
     await db.execute(
       "INSERT IGNORE INTO dua_confirmations (dua_id, user_id) VALUES (?, ?)",
       [duaId, userId]
@@ -183,6 +197,33 @@ app.post("/api/dua/confirm/:id", auth, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: "Confirmation failed" });
+  }
+});
+
+// NEW: SAY AMIN (THANK THE PERSON)
+app.post("/api/dua/thank/:confId", auth, async (req, res) => {
+  try {
+    const { confId } = req.params;
+    const currentUsername = req.user.userId;
+
+    // Verify ownership: Only post author can say Amin
+    const [rows] = await db.execute(`
+      SELECT p.author 
+      FROM posts p
+      JOIN dua_confirmations dc ON p.id = dc.dua_id
+      WHERE dc.id = ?`, 
+      [confId]
+    );
+
+    if (rows.length === 0) return res.status(404).json({ error: "Not found" });
+    if (rows[0].author !== currentUsername) return res.status(403).json({ error: "Unauthorized" });
+
+    await db.execute("UPDATE dua_confirmations SET is_thanked = TRUE WHERE id = ?", [confId]);
+    
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
   }
 });
 
