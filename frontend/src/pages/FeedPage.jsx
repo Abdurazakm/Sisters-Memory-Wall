@@ -2,11 +2,12 @@ import React, { useEffect, useState, useRef } from "react";
 import { getPosts, createPost, addComment, deletePost, deleteComment, updatePost, updateComment } from "../api";
 import { 
   FiImage, FiSend, FiTrash2, FiMessageCircle, FiX, FiEdit2, 
-  FiMaximize2, FiCheck, FiMoreVertical, FiCheckCircle, FiUsers 
+  FiMaximize2, FiCheck, FiMoreVertical 
 } from "react-icons/fi";
 import { FaPrayingHands } from "react-icons/fa";
 import { AudioPlayer, getFileType } from "../components/SharedComponents";
-import DuaCard from "../components/DuaCard"; // ADJUST THIS PATH TO YOUR FILE LOCATION
+import DuaCard from "../components/DuaCard";
+import Header from "../components/Header"; // Import the shared component
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
 
@@ -18,15 +19,29 @@ export default function FeedPage() {
   const [loading, setLoading] = useState(false);
   const [previewMedia, setPreviewMedia] = useState(null); 
   
+  // Search & Filter State (Passed to the Header)
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterType, setFilterType] = useState("all"); 
+
   const username = localStorage.getItem("username");
   const fileInputRef = useRef();
 
-  useEffect(() => { loadPosts(); }, []);
+  useEffect(() => { 
+    loadPosts(); 
+  }, []);
 
   const loadPosts = async () => {
     const data = await getPosts();
     setPosts(data || []);
   };
+
+  // Logic: Filter and Search
+  const filteredPosts = posts.filter(post => {
+    const matchesSearch = post.text?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          post.author?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesFilter = filterType === "all" || post.type === "dua";
+    return matchesSearch && matchesFilter;
+  });
 
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
@@ -49,13 +64,24 @@ export default function FeedPage() {
       setSelectedFiles([]);
       setPostType("post"); 
       loadPosts();
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+      console.error(err); 
+    }
     setLoading(false);
   };
 
   return (
     <div className="min-h-screen bg-gray-50 pb-12">
-      {/* 1. MEDIA LIGHTBOX */}
+      {/* Shared Header with Search/Filter controls enabled */}
+      <Header 
+        showControls={true}
+        searchQuery={searchQuery} 
+        setSearchQuery={setSearchQuery} 
+        filterType={filterType} 
+        setFilterType={setFilterType} 
+      />
+
+      {/* Full-screen Media Preview Modal */}
       {previewMedia && (
         <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 backdrop-blur-md" onClick={() => setPreviewMedia(null)}>
           <button className="absolute top-6 right-6 text-white hover:text-emerald-400 z-[110] transition-transform hover:scale-110">
@@ -75,18 +101,8 @@ export default function FeedPage() {
         {/* CREATE POST BOX */}
         <div className={`bg-white rounded-2xl shadow-sm border p-5 mb-6 transition-all duration-300 ${postType === 'dua' ? 'ring-2 ring-emerald-400 border-emerald-100' : ''}`}>
           <div className="flex gap-4 mb-4 border-b pb-2">
-            <button 
-              onClick={() => setPostType("post")}
-              className={`text-xs font-bold px-4 py-1.5 rounded-full transition-all ${postType === 'post' ? 'bg-purple-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-            >
-              Normal Post
-            </button>
-            <button 
-              onClick={() => setPostType("dua")}
-              className={`text-xs font-bold px-4 py-1.5 rounded-full transition-all flex items-center gap-2 ${postType === 'dua' ? 'bg-emerald-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-            >
-              <FaPrayingHands size={14}/> Dua Request
-            </button>
+            <button onClick={() => setPostType("post")} className={`text-xs font-bold px-4 py-1.5 rounded-full transition-all ${postType === 'post' ? 'bg-purple-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>Normal Post</button>
+            <button onClick={() => setPostType("dua")} className={`text-xs font-bold px-4 py-1.5 rounded-full transition-all flex items-center gap-2 ${postType === 'dua' ? 'bg-emerald-600 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}><FaPrayingHands size={14}/> Dua Request</button>
           </div>
 
           <textarea
@@ -97,57 +113,40 @@ export default function FeedPage() {
             rows="3"
           />
 
-          {selectedFiles.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-4">
-              {selectedFiles.map((file, idx) => (
-                <div key={idx} className="bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-100 flex items-center gap-2">
-                  <span className="text-[11px] font-semibold text-emerald-700 truncate max-w-[150px]">{file.name}</span>
-                  <button onClick={() => setSelectedFiles(selectedFiles.filter((_, i) => i !== idx))} className="text-emerald-400 hover:text-emerald-600"><FiX size={14} /></button>
-                </div>
-              ))}
-            </div>
-          )}
-
           <div className="flex justify-between items-center mt-2 border-t pt-4">
-            <button 
-              onClick={() => fileInputRef.current.click()} 
-              className={`flex items-center gap-2 font-semibold px-3 py-1 rounded-lg transition-colors ${postType === 'dua' ? 'text-emerald-600 hover:bg-emerald-50' : 'text-purple-600 hover:bg-purple-50'}`}
-            >
+            <button onClick={() => fileInputRef.current.click()} className={`flex items-center gap-2 font-semibold px-3 py-1 rounded-lg transition-colors ${postType === 'dua' ? 'text-emerald-600 hover:bg-emerald-50' : 'text-purple-600 hover:bg-purple-50'}`}>
               <FiImage size={22} /> <span className="text-sm">Media</span>
             </button>
             <input type="file" hidden multiple ref={fileInputRef} onChange={handleFileChange} />
-            <button 
-              onClick={handleCreatePost} 
-              disabled={loading} 
-              className={`${postType === 'dua' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-purple-600 hover:bg-purple-700'} text-white px-8 py-2.5 rounded-full font-bold shadow-md active:scale-95 disabled:bg-gray-200 disabled:shadow-none`}
-            >
+            <button onClick={handleCreatePost} disabled={loading} className={`${postType === 'dua' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-purple-600 hover:bg-purple-700'} text-white px-8 py-2.5 rounded-full font-bold shadow-md active:scale-95 disabled:bg-gray-200`}>
               {loading ? "Posting..." : "Share with Family"}
             </button>
           </div>
         </div>
 
-        {/* FEED LIST */}
+        {/* FILTERED FEED LIST */}
         <div className="space-y-6">
-          {posts.map((post) => (
-            post.type === 'dua' ? (
-              <DuaCard key={post.id} post={post} currentUser={username} onRefresh={loadPosts} isMine={post.author === username} />
-            ) : (
-              <PostCard 
-                key={post.id} 
-                post={post} 
-                isMine={post.author === username} 
-                onRefresh={loadPosts}
-                onOpenMedia={(url, type) => setPreviewMedia({ url, type })}
-              />
-            )
-          ))}
+          {filteredPosts.length > 0 ? (
+            filteredPosts.map((post) => (
+              post.type === 'dua' ? (
+                <DuaCard key={post.id} post={post} currentUser={username} onRefresh={loadPosts} isMine={post.author === username} />
+              ) : (
+                <PostCard key={post.id} post={post} isMine={post.author === username} onRefresh={loadPosts} onOpenMedia={(url, type) => setPreviewMedia({ url, type })} />
+              )
+            ))
+          ) : (
+            <div className="text-center py-20 bg-white rounded-2xl border-2 border-dashed border-gray-100">
+              <p className="text-gray-400 font-medium">No memories found matching your search.</p>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-/* ---------------- POST CARD COMPONENT ---------------- */
+/* --- INTERNAL COMPONENTS (PostCard, CommentSection, etc.) --- */
+
 function PostCard({ post, isMine, onRefresh, onOpenMedia }) {
   const [showComments, setShowComments] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -160,7 +159,9 @@ function PostCard({ post, isMine, onRefresh, onOpenMedia }) {
       <div className="p-5">
         <div className="flex justify-between items-start mb-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center text-white font-bold shadow-sm">{post.author[0].toUpperCase()}</div>
+            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center text-white font-bold shadow-sm">
+              {post.author ? post.author[0].toUpperCase() : "?"}
+            </div>
             <div>
               <p className="font-bold text-gray-900 leading-none mb-1">{post.author}</p>
               <p className="text-[10px] text-gray-400 font-medium">{new Date(post.time).toLocaleString()}</p>
@@ -173,8 +174,8 @@ function PostCard({ post, isMine, onRefresh, onOpenMedia }) {
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)}></div>
                   <div className="absolute right-0 mt-2 w-32 bg-white border rounded-xl shadow-lg z-20 overflow-hidden">
-                    <button onClick={() => { setIsEditing(true); setShowMenu(false); }} className="w-full flex items-center gap-2 px-4 py-3 text-sm hover:bg-purple-50 text-gray-700 font-medium"><FiEdit2 size={14} /> Edit</button>
-                    <button onClick={() => { if(window.confirm("Delete post?")) deletePost(post.id).then(onRefresh); }} className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-600 hover:bg-red-50 font-medium"><FiTrash2 size={14} /> Delete</button>
+                    <button onClick={() => { setIsEditing(true); setShowMenu(false); }} className="w-full text-left px-4 py-3 text-sm hover:bg-purple-50 flex items-center gap-2"><FiEdit2 size={14} /> Edit</button>
+                    <button onClick={() => { if(window.confirm("Delete post?")) deletePost(post.id).then(onRefresh); }} className="w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"><FiTrash2 size={14} /> Delete</button>
                   </div>
                 </>
               )}
@@ -222,7 +223,6 @@ function PostCard({ post, isMine, onRefresh, onOpenMedia }) {
   );
 }
 
-/* ---------------- COMMENT SECTION ---------------- */
 function CommentSection({ postId, comments, onRefresh }) {
   const [activeReplyId, setActiveReplyId] = useState(null);
   const [activeEditId, setActiveEditId] = useState(null);
@@ -233,7 +233,9 @@ function CommentSection({ postId, comments, onRefresh }) {
     <div className="bg-gray-50/80 p-5 border-t space-y-4">
       {comments.map((comment) => (
         <div key={comment.id} className="flex gap-3">
-          <div className="w-8 h-8 rounded-full bg-purple-100 flex-shrink-0 flex items-center justify-center text-xs font-bold text-purple-700 shadow-sm">{comment.author[0].toUpperCase()}</div>
+          <div className="w-8 h-8 rounded-full bg-purple-100 flex-shrink-0 flex items-center justify-center text-xs font-bold text-purple-700 shadow-sm">
+            {comment.author ? comment.author[0].toUpperCase() : "?"}
+          </div>
           <div className="flex-1 min-w-0">
             {activeEditId === comment.id ? (
               <div className="mb-2">
@@ -250,13 +252,10 @@ function CommentSection({ postId, comments, onRefresh }) {
                   <div className="relative flex-shrink-0">
                     <button onClick={() => setActiveMenuId(activeMenuId === comment.id ? null : comment.id)} className="p-2 text-gray-400 hover:bg-gray-200 rounded-full transition-colors"><FiMoreVertical size={16} /></button>
                     {activeMenuId === comment.id && (
-                      <>
-                        <div className="fixed inset-0 z-10" onClick={() => setActiveMenuId(null)}></div>
-                        <div className="absolute right-0 mt-1 w-32 bg-white border rounded-xl shadow-xl z-20 py-1 overflow-hidden">
-                          <button onClick={() => { setActiveEditId(comment.id); setActiveMenuId(null); }} className="w-full text-left px-4 py-2 text-sm hover:bg-purple-50 flex items-center gap-2 font-medium text-gray-700"><FiEdit2 size={14}/> Edit</button>
-                          <button onClick={() => { if(window.confirm("Delete comment?")) deleteComment(comment.id).then(onRefresh); }} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 font-medium"><FiTrash2 size={14}/> Delete</button>
-                        </div>
-                      </>
+                      <div className="absolute right-0 mt-1 w-32 bg-white border rounded-xl shadow-xl z-20 py-1 overflow-hidden">
+                        <button onClick={() => { setActiveEditId(comment.id); setActiveMenuId(null); }} className="w-full text-left px-4 py-2 text-sm hover:bg-purple-50 flex items-center gap-2"><FiEdit2 size={14}/> Edit</button>
+                        <button onClick={() => { if(window.confirm("Delete comment?")) deleteComment(comment.id).then(onRefresh); }} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"><FiTrash2 size={14}/> Delete</button>
+                      </div>
                     )}
                   </div>
                 )}
@@ -287,7 +286,7 @@ function CommentInput({ onSubmit, initialValue = "", placeholder = "Write a comm
   return (
     <form onSubmit={handleSubmit} className="flex gap-2 items-center bg-white p-1.5 rounded-xl border shadow-sm">
       <input value={val} onChange={(e) => setVal(e.target.value)} placeholder={placeholder} className="flex-1 bg-transparent px-3 py-1.5 text-sm outline-none" />
-      <button type="submit" className="bg-purple-600 text-white p-2.5 rounded-lg hover:bg-purple-700 active:scale-90 transition-all shadow-sm"><FiSend size={16} /></button>
+      <button type="submit" className="bg-purple-600 text-white p-2.5 rounded-lg hover:bg-purple-700 shadow-sm transition-all active:scale-90"><FiSend size={16} /></button>
     </form>
   );
 }
