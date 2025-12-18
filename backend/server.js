@@ -14,13 +14,13 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: { 
-    origin: "http://localhost:5173",
+    origin: "http://localhost:5174",
     methods: ["GET", "POST"],
     credentials: true
   },
 });
 
-app.use(cors({ origin: "http://localhost:5173", credentials: true }));
+app.use(cors({ origin: "http://localhost:5174", credentials: true }));
 app.use(express.json());
 app.use("/uploads", express.static("uploads"));
 
@@ -63,8 +63,26 @@ async function connectDB() {
     database: process.env.DB_NAME,
   });
 
-  // Users
-  await db.execute(`CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(100) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL)`);
+  // Users (Updated with profile_photo and bio)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INT AUTO_INCREMENT PRIMARY KEY, 
+      username VARCHAR(100) UNIQUE NOT NULL, 
+      password VARCHAR(255) NOT NULL,
+      profile_photo VARCHAR(500) DEFAULT NULL,
+      bio TEXT DEFAULT NULL
+    )
+  `);
+
+  // Profile Photo History
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS profile_photos (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      username VARCHAR(100),
+      photo_url VARCHAR(500),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 
   // Chat Messages
   await db.execute(`CREATE TABLE IF NOT EXISTS messages (id INT AUTO_INCREMENT PRIMARY KEY, author VARCHAR(100), text TEXT, file_url VARCHAR(500), file_type VARCHAR(100), file_name VARCHAR(255), file_size INT, reply_to INT NULL, time DATETIME DEFAULT CURRENT_TIMESTAMP)`);
@@ -72,7 +90,7 @@ async function connectDB() {
   // Feed Posts
   await db.execute(`CREATE TABLE IF NOT EXISTS posts (id INT AUTO_INCREMENT PRIMARY KEY, author VARCHAR(100), text TEXT, type ENUM('post', 'dua') DEFAULT 'post', time DATETIME DEFAULT CURRENT_TIMESTAMP)`);
 
-  // Dua Confirmations (UPDATED WITH is_thanked)
+  // Dua Confirmations
   await db.execute(`
     CREATE TABLE IF NOT EXISTS dua_confirmations (
       id INT AUTO_INCREMENT PRIMARY KEY, 
@@ -91,7 +109,7 @@ async function connectDB() {
   // Comments
   await db.execute(`CREATE TABLE IF NOT EXISTS comments (id INT AUTO_INCREMENT PRIMARY KEY, post_id INT, author VARCHAR(100), text TEXT, reply_to INT NULL, time DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE)`);
 
-  console.log("✅ Database System and Dua Feature Ready");
+  console.log("✅ Database System, Profile, and Bio Ready");
   await seedUsers();
 }
 
@@ -112,30 +130,87 @@ function auth(req, res, next) {
   try {
     const token = header.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (!ALLOWED_USERS.includes(decoded.userId)) return res.status(403).json({ error: "Forbidden" });
     req.user = decoded;
     next();
   } catch (err) { res.status(401).json({ error: "Invalid token" }); }
 }
 
-/* ================== AUTH ROUTES ================== */
+/* ================== AUTH & PROFILE ROUTES ================== */
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
-  if (!ALLOWED_USERS.includes(username)) return res.status(403).json({ error: "Not allowed" });
   try {
     const [rows] = await db.execute("SELECT * FROM users WHERE username = ?", [username]);
     if (!rows.length) return res.status(401).json({ error: "Invalid credentials" });
+    
     const valid = await bcrypt.compare(password, rows[0].password);
     if (!valid) return res.status(401).json({ error: "Invalid credentials" });
+    
     const token = jwt.sign({ userId: username }, process.env.JWT_SECRET, { expiresIn: "7d" });
-    res.json({ token, user: { username } });
+    res.json({ 
+      token, 
+      username: rows[0].username, 
+      profilePhoto: rows[0].profile_photo,
+      bio: rows[0].bio // Included bio in login
+    });
   } catch (err) { res.status(500).json({ error: "Server error" }); }
+});
+
+// GET PROFILE DATA (Photos + History + Bio)
+app.get("/api/profile/:username", auth, async (req, res) => {
+  try {
+    const [user] = await db.execute("SELECT username, profile_photo, bio FROM users WHERE username = ?", [req.params.username]);
+    const [history] = await db.execute("SELECT photo_url, created_at FROM profile_photos WHERE username = ? ORDER BY created_at DESC", [req.params.username]);
+    
+    if(!user.length) return res.status(404).json({ error: "User not found" });
+    res.json({ ...user[0], history });
+  } catch (err) { res.status(500).json({ error: "Server error" }); }
+});
+
+// UPDATE PROFILE PHOTO
+app.post("/api/profile/photo", auth, upload.single("photo"), async (req, res) => {
+  try {
+    const username = req.user.userId;
+    const newPhotoUrl = `/uploads/${req.file.filename}`;
+
+    const [currentUser] = await db.execute("SELECT profile_photo FROM users WHERE username = ?", [username]);
+    if (currentUser[0].profile_photo) {
+      await db.execute("INSERT INTO profile_photos (username, photo_url) VALUES (?, ?)", [username, currentUser[0].profile_photo]);
+    }
+
+    await db.execute("UPDATE users SET profile_photo = ? WHERE username = ?", [newPhotoUrl, username]);
+    res.json({ success: true, photoUrl: newPhotoUrl });
+  } catch (err) { res.status(500).json({ error: "Upload failed" }); }
+});
+
+// UPDATE SETTINGS (Username/Password/Bio)
+app.put("/api/profile/settings", auth, async (req, res) => {
+  try {
+    const oldUsername = req.user.userId;
+    const { newUsername, newPassword, bio } = req.body;
+
+    // Handle Password Update
+    if (newPassword) {
+      const hash = await bcrypt.hash(newPassword, 10);
+      await db.execute("UPDATE users SET password = ? WHERE username = ?", [hash, oldUsername]);
+    }
+
+    // Handle Bio Update (Always update if provided)
+    if (bio !== undefined) {
+      await db.execute("UPDATE users SET bio = ? WHERE username = ?", [bio, oldUsername]);
+    }
+
+    // Handle Username Update
+    if (newUsername && newUsername !== oldUsername) {
+      await db.execute("UPDATE users SET username = ? WHERE username = ?", [newUsername, oldUsername]);
+    }
+
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: "Update failed" }); }
 });
 
 /* ================== FEED POSTS ROUTES ================== */
 app.get("/api/posts", auth, async (req, res) => {
   try {
-    // UPDATED QUERY: Includes 'id' and 'is_thanked' in the JSON object
     const [posts] = await db.execute(`
       SELECT p.*, 
       (SELECT JSON_ARRAYAGG(
@@ -159,10 +234,7 @@ app.get("/api/posts", auth, async (req, res) => {
       post.confirmations = post.confirmations || []; 
     }
     res.json(posts);
-  } catch (err) { 
-    console.error(err);
-    res.status(500).json({ error: "Fetch error" }); 
-  }
+  } catch (err) { res.status(500).json({ error: "Fetch error" }); }
 });
 
 app.post("/api/posts", auth, upload.array("files", 10), async (req, res) => {
@@ -183,63 +255,39 @@ app.post("/api/posts", auth, upload.array("files", 10), async (req, res) => {
   } catch (err) { res.status(500).send(); }
 });
 
-// DUA CONFIRMATION (AMEEN)
 app.post("/api/dua/confirm/:id", auth, async (req, res) => {
   try {
     const duaId = req.params.id;
     const userId = req.user.userId;
-
-    await db.execute(
-      "INSERT IGNORE INTO dua_confirmations (dua_id, user_id) VALUES (?, ?)",
-      [duaId, userId]
-    );
-
+    await db.execute("INSERT IGNORE INTO dua_confirmations (dua_id, user_id) VALUES (?, ?)", [duaId, userId]);
     res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: "Confirmation failed" });
-  }
+  } catch (err) { res.status(500).json({ error: "Confirmation failed" }); }
 });
 
-// NEW: SAY AMIN (THANK THE PERSON)
 app.post("/api/dua/thank/:confId", auth, async (req, res) => {
   try {
     const { confId } = req.params;
     const currentUsername = req.user.userId;
-
-    // Verify ownership: Only post author can say Amin
-    const [rows] = await db.execute(`
-      SELECT p.author 
-      FROM posts p
-      JOIN dua_confirmations dc ON p.id = dc.dua_id
-      WHERE dc.id = ?`, 
-      [confId]
-    );
+    const [rows] = await db.execute(`SELECT p.author FROM posts p JOIN dua_confirmations dc ON p.id = dc.dua_id WHERE dc.id = ?`, [confId]);
 
     if (rows.length === 0) return res.status(404).json({ error: "Not found" });
     if (rows[0].author !== currentUsername) return res.status(403).json({ error: "Unauthorized" });
 
     await db.execute("UPDATE dua_confirmations SET is_thanked = TRUE WHERE id = ?", [confId]);
-    
     res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
-  }
+  } catch (err) { res.status(500).json({ error: "Server error" }); }
 });
 
-// EDIT POST
 app.put("/api/posts/:id", auth, async (req, res) => {
   try {
     const { text } = req.body;
     const [rows] = await db.execute("SELECT author FROM posts WHERE id = ?", [req.params.id]);
     if (!rows.length || rows[0].author !== req.user.userId) return res.status(403).send();
-
     await db.execute("UPDATE posts SET text = ? WHERE id = ?", [text, req.params.id]);
     res.json({ success: true });
   } catch (err) { res.status(500).send(); }
 });
 
-// DELETE POST
 app.delete("/api/posts/:id", auth, async (req, res) => {
   try {
     const [rows] = await db.execute("SELECT author FROM posts WHERE id = ?", [req.params.id]);
@@ -293,10 +341,10 @@ app.post("/api/messages", auth, upload.single("file"), async (req, res) => {
   try {
     const author = req.user.userId;
     const { text, replyTo } = req.body;
-    let file = [null, null, null, null];
-    if (req.file) file = [`/uploads/${req.file.filename}`, req.file.mimetype, req.file.originalname, req.file.size];
+    let fileData = [null, null, null, null];
+    if (req.file) fileData = [`/uploads/${req.file.filename}`, req.file.mimetype, req.file.originalname, req.file.size];
 
-    const [result] = await db.execute("INSERT INTO messages (author, text, file_url, file_type, file_name, file_size, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)", [author, text || null, ...file, replyTo || null]);
+    const [result] = await db.execute("INSERT INTO messages (author, text, file_url, file_type, file_name, file_size, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)", [author, text || null, ...fileData, replyTo || null]);
     const [newMsg] = await db.execute(`SELECT m1.*, m2.author AS reply_author, m2.text AS reply_text FROM messages m1 LEFT JOIN messages m2 ON m1.reply_to = m2.id WHERE m1.id = ?`, [result.insertId]);
     
     io.emit("newMessage", newMsg[0]);

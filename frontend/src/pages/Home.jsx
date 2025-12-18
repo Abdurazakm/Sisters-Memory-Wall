@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Header from "../components/Header";
 import SisterCard from "../components/SisterCard";
 import DuaSection from "../components/DuaSection";
@@ -6,19 +6,23 @@ import sisters from "../data/sisters";
 import { useNavigate } from "react-router-dom";
 import { 
   FiLayout, FiMessageCircle, FiLogOut, FiZap, 
-  FiLoader, FiPlusCircle, FiArrowRight 
+  FiLoader, FiPlusCircle, FiArrowRight, FiUser, FiChevronDown, FiSettings 
 } from "react-icons/fi";
 import { FaPrayingHands } from "react-icons/fa";
 import DuaCard from "../components/DuaCard";
 
-// Using the same URL logic as FeedPage for consistency
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
 
 export default function Home() {
   const navigate = useNavigate();
   const [latestDua, setLatestDua] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const dropdownRef = useRef(null);
+  
   const currentUser = localStorage.getItem("username");
+  // In a real app, you'd fetch the user's actual profile photo URL from your backend/state
+  const profilePhoto = localStorage.getItem("profilePhoto"); 
 
   const fetchLatestDua = async () => {
     try {
@@ -28,8 +32,6 @@ export default function Home() {
       });
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
-      
-      // Logic: Find the most recent post with type 'dua'
       const dua = data.find((p) => p.type === "dua");
       setLatestDua(dua);
     } catch (err) {
@@ -41,19 +43,26 @@ export default function Home() {
 
   useEffect(() => {
     fetchLatestDua();
+    // Close dropdown when clicking outside
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   function handleLogout() {
     localStorage.removeItem("token");
     localStorage.removeItem("username");
-    window.location.href = "/login"; // Force redirect to clear state
+    window.location.href = "/login";
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-emerald-50 p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
         
-        {/* Main Brand Header */}
         <Header />
 
         {/* --- QUICK ACTION DASHBOARD --- */}
@@ -83,12 +92,58 @@ export default function Home() {
             </button>
           </div>
 
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 text-gray-400 hover:text-red-500 px-4 py-2 rounded-xl transition-colors text-sm font-bold"
-          >
-            <FiLogOut /> Logout
-          </button>
+          {/* --- NEW USER DROPDOWN --- */}
+          <div className="relative" ref={dropdownRef}>
+            <button
+              onClick={() => setShowDropdown(!showDropdown)}
+              className="flex items-center gap-2 bg-white border border-gray-100 p-1.5 pr-4 rounded-2xl hover:shadow-md transition-all active:scale-95"
+            >
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-600 flex items-center justify-center text-white overflow-hidden shadow-inner">
+                {profilePhoto ? (
+                  <img src={profilePhoto} alt="Me" className="w-full h-full object-cover" />
+                ) : (
+                  <FiUser size={20} />
+                )}
+              </div>
+              <div className="text-left hidden sm:block">
+                <p className="text-[10px] font-bold text-gray-400 uppercase leading-none mb-1">Signed in as</p>
+                <p className="text-sm font-black text-gray-800 leading-none">{currentUser || "Sister"}</p>
+              </div>
+              <FiChevronDown className={`text-gray-400 transition-transform duration-300 ${showDropdown ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Dropdown Menu */}
+            {showDropdown && (
+              <div className="absolute right-0 mt-3 w-56 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 py-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="px-4 py-3 border-b border-gray-50 mb-1">
+                    <p className="text-xs font-bold text-gray-400">Account Menu</p>
+                </div>
+                
+                <button 
+                  onClick={() => navigate("/profile")}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-gray-700 hover:bg-purple-50 hover:text-purple-700 transition-colors"
+                >
+                  <FiUser className="text-purple-500" size={18} /> View Profile
+                </button>
+                
+                <button 
+                  onClick={() => navigate("/settings")}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-gray-700 hover:bg-purple-50 hover:text-purple-700 transition-colors"
+                >
+                  <FiSettings className="text-gray-400" size={18} /> Settings
+                </button>
+
+                <div className="h-px bg-gray-100 my-1 mx-2"></div>
+
+                <button 
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-500 hover:bg-red-50 transition-colors"
+                >
+                  <FiLogOut size={18} /> Logout
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* --- DUA SPOTLIGHT SECTION --- */}

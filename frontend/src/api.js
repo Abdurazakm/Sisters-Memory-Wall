@@ -21,6 +21,40 @@ export const login = async (data) => {
   return res.data;
 };
 
+/* ---------------- PROFILE & SETTINGS ---------------- */
+
+/**
+ * Fetches user profile data, including photo history and bio.
+ */
+export const getUserProfile = async (username) => {
+  try {
+    const res = await api.get(`/api/profile/${username}`);
+    return res.data;
+  } catch (err) {
+    console.error(`API Error fetching profile for ${username}:`, err.response?.data || err.message);
+    throw err;
+  }
+};
+
+/**
+ * Uploads a new profile photo.
+ */
+export const updateProfilePhoto = async (formData) => {
+  const res = await api.post("/api/profile/photo", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return res.data;
+};
+
+/**
+ * Updates username, password, or bio.
+ * settingsData can contain { newUsername, newPassword, bio }
+ */
+export const updateUserSettings = async (settingsData) => {
+  const res = await api.put("/api/profile/settings", settingsData);
+  return res.data;
+};
+
 /* ---------------- CHAT MESSAGES ---------------- */
 export const getMessages = async () => {
   const res = await api.get("/api/messages");
@@ -40,10 +74,6 @@ export const getPosts = async () => {
   return res.data;
 };
 
-/**
- * Creates a post or dua request. 
- * @param {FormData} formData - Contains 'text', 'type' (post/dua), and 'files'
- */
 export const createPost = async (formData) => {
   const res = await api.post("/api/posts", formData, {
     headers: { "Content-Type": "multipart/form-data" },
@@ -51,18 +81,20 @@ export const createPost = async (formData) => {
   return res.data;
 };
 
-/**
- * Confirms a Dua request (The "Ameen" action).
- * @param {number} id - The ID of the Dua post
- */
+/* ---------------- DUA SPECIFIC ---------------- */
+
 export const confirmDua = async (id) => {
   const res = await api.post(`/api/dua/confirm/${id}`);
   return res.data;
 };
 
-/**
- * Updates only the text content of a post.
- */
+export const sayAminToDua = async (confirmationId) => {
+  const res = await api.post(`/api/dua/thank/${confirmationId}`);
+  return res.data;
+};
+
+/* ---------------- EDIT / DELETE ---------------- */
+
 export const updatePost = async (id, text) => {
   const res = await api.put(`/api/posts/${id}`, { text });
   return res.data;
@@ -87,16 +119,6 @@ export const deleteComment = async (id) => {
 export const updateComment = async (id, text) => {
   const res = await api.put(`/api/comments/${id}`, { text });
   return res.data;
-};
-export const sayAminToDua = async (confirmationId) => {
-  const response = await fetch(`${BACKEND_URL}/api/dua/thank/${confirmationId}`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${localStorage.getItem("token")}`,
-      "Content-Type": "application/json",
-    },
-  });
-  return response.json();
 };
 
 export default api;

@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Link, Navigate } from "react-router-dom";
 import Home from "./pages/Home";
 import MessageBoardPage from "./pages/MessageBoardPage";
-import FeedPage from "./pages/FeedPage"; // 👈 Import your new FeedPage
+import FeedPage from "./pages/FeedPage";
+import ProfilePage from "./pages/ProfilePage"; // 👈 New
+import SettingsPage from "./pages/SettingsPage"; // 👈 New
 import ProtectedRoute from "./components/ProtectedRoute";
 import Login from "./pages/Login";
 
@@ -11,40 +13,31 @@ export default function App() {
 
   return (
     <Router>
-      {/* Navigation */}
-      <nav className="bg-purple-600 p-4 text-white flex justify-center gap-8 shadow-md sticky top-0 z-50">
-        <Link to="/" className="hover:text-purple-200 font-medium transition">Home</Link>
-        <Link to="/feed" className="hover:text-purple-200 font-medium transition">Family Feed</Link>
-        <Link to="/messages" className="hover:text-purple-200 font-medium transition">Chat</Link>
-      </nav>
+      {/* Optional: You can keep this nav, but since we have 
+         buttons on the Home page, many modern apps move 
+         this into the pages or use a cleaner Sidebar.
+      */}
+      {/* <nav className="bg-white/80 backdrop-blur-md border-b border-gray-100 p-4 flex justify-center gap-8 shadow-sm sticky top-0 z-50">
+        <Link to="/" className="text-gray-600 hover:text-purple-600 font-bold text-sm transition">Home</Link>
+        <Link to="/feed" className="text-gray-600 hover:text-purple-600 font-bold text-sm transition">Feed</Link>
+        <Link to="/messages" className="text-gray-600 hover:text-purple-600 font-bold text-sm transition">Chat</Link>
+      </nav> */}
 
       <Routes>
-        <Route path="/" element={<Home />} />
+        {/* Public Routes */}
+        <Route path="/login" element={<Login setToken={setToken} />} />
         
-        <Route 
-          path="/login" 
-          element={<Login setToken={setToken} />} 
-        />
+        {/* Protected Routes */}
+        <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+        <Route path="/feed" element={<ProtectedRoute><FeedPage /></ProtectedRoute>} />
+        <Route path="/messages" element={<ProtectedRoute><MessageBoardPage /></ProtectedRoute>} />
         
-        {/* Protected Chat Route */}
-        <Route
-          path="/messages"
-          element={
-            <ProtectedRoute>
-              <MessageBoardPage />
-            </ProtectedRoute>
-          }
-        />
+        {/* 👈 NEW: Profile and Settings Routes */}
+        <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+        <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
 
-        {/* Protected Feed Route */}
-        <Route
-          path="/feed"
-          element={
-            <ProtectedRoute>
-              <FeedPage />
-            </ProtectedRoute>
-          }
-        />
+        {/* Catch-all: Redirect to home */}
+        <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Router>
   );
