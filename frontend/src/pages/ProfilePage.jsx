@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom"; // Added useParams
 import { getPosts, getUserProfile, updateProfilePhoto } from "../api";
 import { 
   FiCamera, FiChevronLeft, FiChevronRight, FiEdit, 
@@ -12,51 +12,52 @@ const BACKEND_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const username = localStorage.getItem("username");
+  const { username: urlUsername } = useParams(); // Get username from URL (e.g., /profile/Sara)
+  const loggedInUser = localStorage.getItem("username");
   
+  // Logic to determine if this is the user's OWN profile
+  const isOwnProfile = !urlUsername || urlUsername === loggedInUser;
+  const targetUser = urlUsername || loggedInUser;
+
   // State
   const [myPosts, setMyPosts] = useState([]);
   const [photoHistory, setPhotoHistory] = useState([]);
-  const [bio, setBio] = useState(""); // Added bio state
+  const [bio, setBio] = useState("");
   const [currentPhotoIdx, setCurrentPhotoIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     loadProfileData();
-  }, []);
+  }, [urlUsername]); // Reload if the URL username changes
 
   const loadProfileData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch Profile and History
-      const profile = await getUserProfile(username);
+      // 1. Fetch Profile for the TARGET user
+      const profile = await getUserProfile(targetUser);
       
-      // Update bio from profile data
       setBio(profile.bio || ""); 
       
-      // 2. Format history URLs
       const historyArr = [];
-      
-      // Add current photo first
+      // Current photo
       if (profile.profile_photo) {
         historyArr.push(`${BACKEND_URL}${profile.profile_photo}`);
       } else {
-        historyArr.push(`https://ui-avatars.com/api/?name=${username}&background=random`);
+        historyArr.push(`https://ui-avatars.com/api/?name=${targetUser}&background=random`);
       }
 
-      // Add historical photos
+      // Historical photos
       if (profile.history && profile.history.length > 0) {
         profile.history.forEach(h => {
           historyArr.push(`${BACKEND_URL}${h.photo_url}`);
         });
       }
-      
       setPhotoHistory(historyArr);
 
-      // 3. Fetch Posts
+      // 2. Fetch Posts for the TARGET user
       const allPosts = await getPosts();
-      const filtered = (allPosts || []).filter(p => p.author === username);
+      const filtered = (allPosts || []).filter(p => p.author === targetUser);
       setMyPosts(filtered);
     } catch (err) {
       console.error("Error loading profile:", err);
@@ -66,6 +67,7 @@ export default function ProfilePage() {
   };
 
   const handlePhotoUpload = async (e) => {
+    if (!isOwnProfile) return; // Guard
     const file = e.target.files[0];
     if (!file) return;
 
@@ -79,7 +81,7 @@ export default function ProfilePage() {
       setCurrentPhotoIdx(0); 
     } catch (err) {
       console.error(err);
-      alert("Failed to upload photo. Please try again.");
+      alert("Failed to upload photo.");
     } finally {
       setUploading(false);
     }
@@ -104,7 +106,9 @@ export default function ProfilePage() {
           <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-500 hover:text-purple-600 font-bold transition-colors">
             <FiArrowLeft size={20} /> Back
           </button>
-          <h1 className="text-lg font-black text-gray-800 tracking-tight">Sister Profile</h1>
+          <h1 className="text-lg font-black text-gray-800 tracking-tight">
+             {isOwnProfile ? "My Profile" : `${targetUser}'s Profile`}
+          </h1>
           <div className="w-10"></div> 
         </div>
       </div>
@@ -132,31 +136,33 @@ export default function ProfilePage() {
                   />
                 </div>
                 
-                {/* Upload Button */}
-                <label className="absolute bottom-2 right-2 bg-purple-600 p-3 rounded-2xl text-white shadow-lg cursor-pointer hover:scale-110 active:scale-95 transition-all z-20">
-                  <FiCamera size={20} />
-                  <input type="file" hidden onChange={handlePhotoUpload} accept="image/*" disabled={uploading} />
-                </label>
+                {/* Upload Button - ONLY SHOW IF OWN PROFILE */}
+                {isOwnProfile && (
+                    <label className="absolute bottom-2 right-2 bg-purple-600 p-3 rounded-2xl text-white shadow-lg cursor-pointer hover:scale-110 active:scale-95 transition-all z-20">
+                    <FiCamera size={20} />
+                    <input type="file" hidden onChange={handlePhotoUpload} accept="image/*" disabled={uploading} />
+                    </label>
+                )}
 
                 {/* Navigation Arrows */}
                 {photoHistory.length > 1 && (
                   <>
-                    <button onClick={prevPhoto} className="absolute left-[-20px] top-1/2 -translate-y-1/2 bg-white/90 p-2 rounded-full shadow-md text-gray-400 hover:text-purple-600 opacity-0 group-hover:opacity-100 transition-all">
+                    <button onClick={prevPhoto} className="absolute left-[-20px] top-1/2 -translate-y-1/2 bg-white/90 p-2 rounded-full shadow-md text-gray-400 hover:text-purple-600 opacity-100 md:opacity-0 group-hover:opacity-100 transition-all">
                       <FiChevronLeft size={20}/>
                     </button>
-                    <button onClick={nextPhoto} className="absolute right-[-20px] top-1/2 -translate-y-1/2 bg-white/90 p-2 rounded-full shadow-md text-gray-400 hover:text-purple-600 opacity-0 group-hover:opacity-100 transition-all">
+                    <button onClick={nextPhoto} className="absolute right-[-20px] top-1/2 -translate-y-1/2 bg-white/90 p-2 rounded-full shadow-md text-gray-400 hover:text-purple-600 opacity-100 md:opacity-0 group-hover:opacity-100 transition-all">
                       <FiChevronRight size={20}/>
                     </button>
                   </>
                 )}
               </div>
 
-              <h2 className="text-2xl font-black text-gray-800">{username}</h2>
+              <h2 className="text-2xl font-black text-gray-800">{targetUser}</h2>
               
-              {/* --- BIO SECTION --- */}
+              {/* BIO SECTION */}
               <div className="mt-2 mb-6">
                 {bio ? (
-                  <p className="text-sm text-purple-600 font-bold leading-relaxed px-4">
+                  <p className="text-sm text-purple-600 font-bold leading-relaxed px-4 italic">
                     <FiHeart className="inline mb-1 mr-1" size={12}/> {bio}
                   </p>
                 ) : (
@@ -164,15 +170,18 @@ export default function ProfilePage() {
                 )}
               </div>
               
-              <button 
-                onClick={() => navigate("/settings")}
-                className="w-full py-3 bg-gray-50 text-gray-600 rounded-2xl font-bold text-sm hover:bg-purple-50 hover:text-purple-600 transition-all flex items-center justify-center gap-2"
-              >
-                <FiEdit size={16} /> Edit Details
-              </button>
+              {/* Edit Button - ONLY SHOW IF OWN PROFILE */}
+              {isOwnProfile && (
+                <button 
+                    onClick={() => navigate("/settings")}
+                    className="w-full py-3 bg-gray-50 text-gray-600 rounded-2xl font-bold text-sm hover:bg-purple-50 hover:text-purple-600 transition-all flex items-center justify-center gap-2"
+                >
+                    <FiEdit size={16} /> Edit Details
+                </button>
+              )}
             </div>
 
-            {/* Photo History List (Mini Gallery) */}
+            {/* Photo Journey List */}
             <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
               <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <FiClock /> Photo Journey
@@ -191,11 +200,11 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* --- RIGHT COLUMN: PERSONAL FEED --- */}
+          {/* --- RIGHT COLUMN: USER FEED --- */}
           <div className="md:col-span-2 space-y-6">
             <div className="flex items-center justify-between px-2">
               <h2 className="text-xl font-black text-gray-800 flex items-center gap-2">
-                <FiGrid className="text-purple-500" /> My Contributions
+                <FiGrid className="text-purple-500" /> Contributions
               </h2>
               <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter">
                 {myPosts.length} Posts
@@ -209,15 +218,15 @@ export default function ProfilePage() {
                     <DuaCard 
                         key={post.id} 
                         post={post} 
-                        currentUser={username} 
+                        currentUser={loggedInUser} 
                         onRefresh={loadProfileData} 
-                        isMine={true} 
+                        isMine={isOwnProfile} 
                     />
                   ) : (
                     <PostCard 
                         key={post.id} 
                         post={post} 
-                        isMine={true} 
+                        isMine={isOwnProfile} 
                         onRefresh={loadProfileData} 
                     />
                   )
@@ -225,10 +234,7 @@ export default function ProfilePage() {
               </div>
             ) : (
               <div className="bg-white rounded-[2rem] border-2 border-dashed border-gray-200 py-20 text-center">
-                <p className="text-gray-400 font-bold">You haven't shared any memories yet.</p>
-                <button onClick={() => navigate("/feed")} className="mt-4 text-purple-600 font-black text-sm hover:underline">
-                  Go to Feed to share →
-                </button>
+                <p className="text-gray-400 font-bold">No shared memories yet.</p>
               </div>
             )}
           </div>

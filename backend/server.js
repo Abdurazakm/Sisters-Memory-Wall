@@ -182,30 +182,56 @@ app.post("/api/profile/photo", auth, upload.single("photo"), async (req, res) =>
   } catch (err) { res.status(500).json({ error: "Upload failed" }); }
 });
 
-// UPDATE SETTINGS (Username/Password/Bio)
+// UPDATE SETTINGS (Username/Password/Bio with Current Password Verification)
 app.put("/api/profile/settings", auth, async (req, res) => {
   try {
     const oldUsername = req.user.userId;
-    const { newUsername, newPassword, bio } = req.body;
+    const { newUsername, newPassword, bio, currentPassword } = req.body;
 
-    // Handle Password Update
-    if (newPassword) {
+    // 1. MUST verify current password first
+    const [userRows] = await db.execute("SELECT password FROM users WHERE username = ?", [oldUsername]);
+    if (!userRows.length) return res.status(404).json({ error: "User not found" });
+
+    const isMatch = await bcrypt.compare(currentPassword, userRows[0].password);
+    if (!isMatch) {
+      return res.status(401).json({ error: "Current password is incorrect. Changes not saved." });
+    }
+
+    // 2. Prepare Updates
+    // Handle New Password if provided
+    if (newPassword && newPassword.trim() !== "") {
       const hash = await bcrypt.hash(newPassword, 10);
       await db.execute("UPDATE users SET password = ? WHERE username = ?", [hash, oldUsername]);
     }
 
-    // Handle Bio Update (Always update if provided)
+    // Handle Bio Update
     if (bio !== undefined) {
       await db.execute("UPDATE users SET bio = ? WHERE username = ?", [bio, oldUsername]);
     }
 
-    // Handle Username Update
+    // Handle Username Update (If changing username, do this last)
     if (newUsername && newUsername !== oldUsername) {
+      // Check if new username is already taken
+      const [existing] = await db.execute("SELECT id FROM users WHERE username = ?", [newUsername]);
+      if (existing.length > 0) {
+        return res.status(400).json({ error: "That username is already taken." });
+      }
+      
       await db.execute("UPDATE users SET username = ? WHERE username = ?", [newUsername, oldUsername]);
+      
+      // Update other tables to maintain consistency
+      await db.execute("UPDATE posts SET author = ? WHERE author = ?", [newUsername, oldUsername]);
+      await db.execute("UPDATE messages SET author = ? WHERE author = ?", [newUsername, oldUsername]);
+      await db.execute("UPDATE comments SET author = ? WHERE author = ?", [newUsername, oldUsername]);
+      await db.execute("UPDATE profile_photos SET username = ? WHERE username = ?", [newUsername, oldUsername]);
+      await db.execute("UPDATE dua_confirmations SET user_id = ? WHERE user_id = ?", [newUsername, oldUsername]);
     }
 
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: "Update failed" }); }
+    res.json({ success: true, message: "Settings updated successfully" });
+  } catch (err) {
+    console.error("Update error:", err);
+    res.status(500).json({ error: "Server error during update" });
+  }
 });
 
 /* ================== FEED POSTS ROUTES ================== */
