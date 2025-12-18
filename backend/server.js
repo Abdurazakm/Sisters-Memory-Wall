@@ -14,13 +14,13 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: { 
-    origin: "http://localhost:5174",
+    origin: "http://localhost:5173",
     methods: ["GET", "POST"],
     credentials: true
   },
 });
 
-app.use(cors({ origin: "http://localhost:5174", credentials: true }));
+app.use(cors({ origin: "http://localhost:5173", credentials: true }));
 app.use(express.json());
 app.use("/uploads", express.static("uploads"));
 
@@ -63,14 +63,15 @@ async function connectDB() {
     database: process.env.DB_NAME,
   });
 
-  // Users (Updated with profile_photo and bio)
+  // Users (Updated with last_feed_check)
   await db.execute(`
     CREATE TABLE IF NOT EXISTS users (
       id INT AUTO_INCREMENT PRIMARY KEY, 
       username VARCHAR(100) UNIQUE NOT NULL, 
       password VARCHAR(255) NOT NULL,
       profile_photo VARCHAR(500) DEFAULT NULL,
-      bio TEXT DEFAULT NULL
+      bio TEXT DEFAULT NULL,
+      last_feed_check DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
@@ -85,7 +86,20 @@ async function connectDB() {
   `);
 
   // Chat Messages
-  await db.execute(`CREATE TABLE IF NOT EXISTS messages (id INT AUTO_INCREMENT PRIMARY KEY, author VARCHAR(100), text TEXT, file_url VARCHAR(500), file_type VARCHAR(100), file_name VARCHAR(255), file_size INT, reply_to INT NULL, time DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id INT AUTO_INCREMENT PRIMARY KEY, 
+      author VARCHAR(100), 
+      text TEXT, 
+      file_url VARCHAR(500), 
+      file_type VARCHAR(100), 
+      file_name VARCHAR(255), 
+      file_size INT, 
+      reply_to INT NULL, 
+      is_read BOOLEAN DEFAULT FALSE, 
+      time DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 
   // Feed Posts
   await db.execute(`CREATE TABLE IF NOT EXISTS posts (id INT AUTO_INCREMENT PRIMARY KEY, author VARCHAR(100), text TEXT, type ENUM('post', 'dua') DEFAULT 'post', time DATETIME DEFAULT CURRENT_TIMESTAMP)`);
@@ -109,7 +123,7 @@ async function connectDB() {
   // Comments
   await db.execute(`CREATE TABLE IF NOT EXISTS comments (id INT AUTO_INCREMENT PRIMARY KEY, post_id INT, author VARCHAR(100), text TEXT, reply_to INT NULL, time DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE)`);
 
-  console.log("✅ Database System, Profile, and Bio Ready");
+  console.log("✅ Database System Ready with Feed Tracking");
   await seedUsers();
 }
 
@@ -135,6 +149,48 @@ function auth(req, res, next) {
   } catch (err) { res.status(401).json({ error: "Invalid token" }); }
 }
 
+/* ================== UNREAD / NOTIFICATION ROUTES ================== */
+
+app.get("/api/unread-counts", auth, async (req, res) => {
+  try {
+    const username = req.user.userId;
+
+    // 1. Count Unread Chat Messages
+    const [chatRows] = await db.execute(
+      "SELECT COUNT(*) as count FROM messages WHERE author != ? AND is_read = false", 
+      [username]
+    );
+
+    // 2. Count Unread Feed Posts (Posts created after user's last check)
+    const [feedRows] = await db.execute(
+      `SELECT COUNT(*) as count FROM posts 
+       WHERE author != ? 
+       AND time > (SELECT last_feed_check FROM users WHERE username = ?)`,
+      [username, username]
+    );
+
+    res.json({ 
+      unreadChat: chatRows[0].count, 
+      unreadFeed: feedRows[0].count 
+    });
+  } catch (err) { res.status(500).json({ error: "Server error" }); }
+});
+
+app.post("/api/mark-read", auth, async (req, res) => {
+  try {
+    const { type } = req.body;
+    const username = req.user.userId;
+
+    if (type === 'chat') {
+      await db.execute("UPDATE messages SET is_read = true WHERE author != ? AND is_read = false", [username]);
+    } else if (type === 'feed') {
+      await db.execute("UPDATE users SET last_feed_check = NOW() WHERE username = ?", [username]);
+    }
+    
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: "Server error" }); }
+});
+
 /* ================== AUTH & PROFILE ROUTES ================== */
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
@@ -150,12 +206,11 @@ app.post("/api/login", async (req, res) => {
       token, 
       username: rows[0].username, 
       profilePhoto: rows[0].profile_photo,
-      bio: rows[0].bio // Included bio in login
+      bio: rows[0].bio 
     });
   } catch (err) { res.status(500).json({ error: "Server error" }); }
 });
 
-// GET PROFILE DATA (Photos + History + Bio)
 app.get("/api/profile/:username", auth, async (req, res) => {
   try {
     const [user] = await db.execute("SELECT username, profile_photo, bio FROM users WHERE username = ?", [req.params.username]);
@@ -166,92 +221,54 @@ app.get("/api/profile/:username", auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Server error" }); }
 });
 
-// UPDATE PROFILE PHOTO
 app.post("/api/profile/photo", auth, upload.single("photo"), async (req, res) => {
   try {
     const username = req.user.userId;
     const newPhotoUrl = `/uploads/${req.file.filename}`;
-
     const [currentUser] = await db.execute("SELECT profile_photo FROM users WHERE username = ?", [username]);
     if (currentUser[0].profile_photo) {
       await db.execute("INSERT INTO profile_photos (username, photo_url) VALUES (?, ?)", [username, currentUser[0].profile_photo]);
     }
-
     await db.execute("UPDATE users SET profile_photo = ? WHERE username = ?", [newPhotoUrl, username]);
     res.json({ success: true, photoUrl: newPhotoUrl });
   } catch (err) { res.status(500).json({ error: "Upload failed" }); }
 });
 
-// UPDATE SETTINGS (Username/Password/Bio with Current Password Verification)
 app.put("/api/profile/settings", auth, async (req, res) => {
   try {
     const oldUsername = req.user.userId;
     const { newUsername, newPassword, bio, currentPassword } = req.body;
-
-    // 1. MUST verify current password first
     const [userRows] = await db.execute("SELECT password FROM users WHERE username = ?", [oldUsername]);
     if (!userRows.length) return res.status(404).json({ error: "User not found" });
-
     const isMatch = await bcrypt.compare(currentPassword, userRows[0].password);
-    if (!isMatch) {
-      return res.status(401).json({ error: "Current password is incorrect. Changes not saved." });
-    }
+    if (!isMatch) return res.status(401).json({ error: "Current password is incorrect." });
 
-    // 2. Prepare Updates
-    // Handle New Password if provided
     if (newPassword && newPassword.trim() !== "") {
       const hash = await bcrypt.hash(newPassword, 10);
       await db.execute("UPDATE users SET password = ? WHERE username = ?", [hash, oldUsername]);
     }
-
-    // Handle Bio Update
-    if (bio !== undefined) {
-      await db.execute("UPDATE users SET bio = ? WHERE username = ?", [bio, oldUsername]);
-    }
-
-    // Handle Username Update (If changing username, do this last)
+    if (bio !== undefined) await db.execute("UPDATE users SET bio = ? WHERE username = ?", [bio, oldUsername]);
     if (newUsername && newUsername !== oldUsername) {
-      // Check if new username is already taken
       const [existing] = await db.execute("SELECT id FROM users WHERE username = ?", [newUsername]);
-      if (existing.length > 0) {
-        return res.status(400).json({ error: "That username is already taken." });
-      }
-      
+      if (existing.length > 0) return res.status(400).json({ error: "Username taken." });
       await db.execute("UPDATE users SET username = ? WHERE username = ?", [newUsername, oldUsername]);
-      
-      // Update other tables to maintain consistency
       await db.execute("UPDATE posts SET author = ? WHERE author = ?", [newUsername, oldUsername]);
       await db.execute("UPDATE messages SET author = ? WHERE author = ?", [newUsername, oldUsername]);
       await db.execute("UPDATE comments SET author = ? WHERE author = ?", [newUsername, oldUsername]);
       await db.execute("UPDATE profile_photos SET username = ? WHERE username = ?", [newUsername, oldUsername]);
       await db.execute("UPDATE dua_confirmations SET user_id = ? WHERE user_id = ?", [newUsername, oldUsername]);
     }
-
     res.json({ success: true, message: "Settings updated successfully" });
-  } catch (err) {
-    console.error("Update error:", err);
-    res.status(500).json({ error: "Server error during update" });
-  }
+  } catch (err) { res.status(500).json({ error: "Server error" }); }
 });
 
 /* ================== FEED POSTS ROUTES ================== */
 app.get("/api/posts", auth, async (req, res) => {
   try {
     const [posts] = await db.execute(`
-      SELECT p.*, 
-      (SELECT JSON_ARRAYAGG(
-          JSON_OBJECT(
-            'id', dc.id, 
-            'username', dc.user_id, 
-            'is_thanked', dc.is_thanked
-          )
-        ) 
-       FROM dua_confirmations dc 
-       WHERE dc.dua_id = p.id) AS confirmations
-      FROM posts p 
-      ORDER BY p.time DESC
+      SELECT p.*, (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', dc.id, 'username', dc.user_id, 'is_thanked', dc.is_thanked)) FROM dua_confirmations dc WHERE dc.dua_id = p.id) AS confirmations
+      FROM posts p ORDER BY p.time DESC
     `);
-
     for (let post of posts) {
       const [files] = await db.execute("SELECT file_url, file_type, file_name FROM post_files WHERE post_id = ?", [post.id]);
       const [comments] = await db.execute(`SELECT c.*, r.author AS reply_to_name FROM comments c LEFT JOIN comments r ON c.reply_to = r.id WHERE c.post_id = ? ORDER BY c.time ASC`, [post.id]);
@@ -269,13 +286,11 @@ app.post("/api/posts", auth, upload.array("files", 10), async (req, res) => {
     const { text, type } = req.body; 
     const [result] = await db.execute("INSERT INTO posts (author, text, type) VALUES (?, ?, ?)", [author, text || null, type || 'post']);
     const postId = result.insertId;
-
     if (req.files) {
       for (let file of req.files) {
         await db.execute("INSERT INTO post_files (post_id, file_url, file_type, file_name) VALUES (?, ?, ?, ?)", [postId, `/uploads/${file.filename}`, file.mimetype, file.originalname]);
       }
     }
-    
     io.emit("newPost", { id: postId, author, text, type: type || 'post' });
     res.json({ success: true, id: postId });
   } catch (err) { res.status(500).send(); }
@@ -295,10 +310,8 @@ app.post("/api/dua/thank/:confId", auth, async (req, res) => {
     const { confId } = req.params;
     const currentUsername = req.user.userId;
     const [rows] = await db.execute(`SELECT p.author FROM posts p JOIN dua_confirmations dc ON p.id = dc.dua_id WHERE dc.id = ?`, [confId]);
-
     if (rows.length === 0) return res.status(404).json({ error: "Not found" });
     if (rows[0].author !== currentUsername) return res.status(403).json({ error: "Unauthorized" });
-
     await db.execute("UPDATE dua_confirmations SET is_thanked = TRUE WHERE id = ?", [confId]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: "Server error" }); }
@@ -318,13 +331,11 @@ app.delete("/api/posts/:id", auth, async (req, res) => {
   try {
     const [rows] = await db.execute("SELECT author FROM posts WHERE id = ?", [req.params.id]);
     if (!rows.length || rows[0].author !== req.user.userId) return res.status(403).send();
-
     const [files] = await db.execute("SELECT file_url FROM post_files WHERE post_id = ?", [req.params.id]);
     files.forEach(f => {
       const p = path.join(__dirname, f.file_url);
       if (fs.existsSync(p)) fs.unlinkSync(p);
     });
-
     await db.execute("DELETE FROM posts WHERE id = ?", [req.params.id]);
     res.json({ success: true });
   } catch (err) { res.status(500).send(); }

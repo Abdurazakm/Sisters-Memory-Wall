@@ -1,10 +1,34 @@
 import React from "react";
-import { FiSearch, FiX, FiHeart } from "react-icons/fi";
+import { FiSearch, FiX, FiHeart, FiHome, FiMessageCircle, FiUser, FiLayout } from "react-icons/fi";
 import { FaPrayingHands } from "react-icons/fa";
+import { Link, useLocation } from "react-router-dom";
 
 export default function Header({ searchQuery, setSearchQuery, filterType, setFilterType, showControls = false }) {
+  const location = useLocation();
+
+  // Helper to check if a link is active for desktop styling
+  const isActive = (path) => location.pathname === path;
+
   return (
-    <header className="text-center mb-8 pt-8 px-4 animate-fade-in">
+    <header className="text-center mb-8 pt-8 px-4 animate-fade-in relative">
+      
+      {/* --- DESKTOP NAVIGATION MENU --- */}
+      {/* Visible only on tablets and desktops (sm and up) */}
+      <nav className="hidden sm:flex items-center justify-center gap-8 mb-8">
+        <Link to="/" className={`flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-colors ${isActive("/") ? "text-purple-600" : "text-gray-400 hover:text-purple-500"}`}>
+          <FiHome size={16} /> Home
+        </Link>
+        <Link to="/feed" className={`flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-colors ${isActive("/feed") ? "text-purple-600" : "text-gray-400 hover:text-purple-500"}`}>
+          <FiLayout size={16} /> Feed
+        </Link>
+        <Link to="/messages" className={`flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-colors ${isActive("/messages") ? "text-purple-600" : "text-gray-400 hover:text-purple-500"}`}>
+          <FiMessageCircle size={16} /> Chat
+        </Link>
+        <Link to="/profile" className={`flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-colors ${isActive("/profile") ? "text-purple-600" : "text-gray-400 hover:text-purple-500"}`}>
+          <FiUser size={16} /> Me
+        </Link>
+      </nav>
+
       <div className="inline-block relative mb-4">
         <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-700 via-emerald-600 to-indigo-700 drop-shadow-sm">
           Sisters’ Memory Wall

@@ -48,10 +48,27 @@ export const updateProfilePhoto = async (formData) => {
 
 /**
  * Updates username, password, or bio.
- * settingsData can contain { newUsername, newPassword, bio }
  */
 export const updateUserSettings = async (settingsData) => {
   const res = await api.put("/api/profile/settings", settingsData);
+  return res.data;
+};
+
+/* ---------------- NOTIFICATIONS & BADGES ---------------- */
+
+/**
+ * Fetches unread counts for chat and feed notifications.
+ */
+export const getUnreadCounts = async () => {
+  const res = await api.get("/api/unread-counts");
+  return res.data;
+};
+
+/**
+ * Tells the server to mark all unread messages as seen.
+ */
+export const markMessagesAsRead = async () => {
+  const res = await api.post("/api/mark-read");
   return res.data;
 };
 
