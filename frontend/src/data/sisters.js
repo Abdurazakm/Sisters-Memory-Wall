@@ -1,7 +1,7 @@
 const sisters = [
   {
     id: 1,
-    name: "Sister One",
+    name: "Zebiba Mohammed",
     note: "Your strength and kindness inspire me.",
     graduated: true,
     graduationDate: "2025-09-01",
@@ -25,7 +25,7 @@ const sisters = [
   },
   {
     id: 2,
-    name: "Sister Two",
+    name: "Hawlet Yusuf",
     note: "Always thoughtful and supportive.",
     graduated: false,
     photo: "/gallery/sister2-1.jpg",
@@ -45,7 +45,7 @@ const sisters = [
   },
   {
     id: 3,
-    name: "Sister Three",
+    name: "Zebiba Shemsu",
     note: "Your patience and wisdom matter a lot.",
     graduated: false,
     photo: "/gallery/sister3-1.jpg",
@@ -63,6 +63,27 @@ const sisters = [
       "May your heart always be filled with faith and gratitude."
     ],
   },
+  {
+    id: 4,
+    name: "Semira Fuad",
+    note: "Your patience and wisdom matter a lot.",
+    graduated: false,
+    photo: "/gallery/sister3-1.jpg",
+    gallery: [
+      "/gallery/sister3-1.jpg",
+      "/gallery/sister3-2.jpg",
+    ],
+    galleryCaptions: [
+      "Moments of calm and joy 💛",
+      "Learning and growing every day 📚",
+    ],
+    caption: "Your journey is just beginning 🌸",
+    duas: [
+      "May Allah open new doors of knowledge for you.",
+      "May your heart always be filled with faith and gratitude."
+    ],
+  },
+
 ];
 
 export default sisters;

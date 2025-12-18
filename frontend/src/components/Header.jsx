@@ -37,7 +37,7 @@ export default function Header({ searchQuery, setSearchQuery, filterType, setFil
       </div>
       
       <p className="text-gray-600 text-sm sm:text-base font-medium italic mb-8">
-        "To my three sisters — always proud of you" 🤍
+        "To my Four sisters — always proud of you" 🤍
       </p>
 
       {/* Only show search and filters if we are on the Feed page */}
