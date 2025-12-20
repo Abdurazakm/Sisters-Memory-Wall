@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { FiUser, FiLock, FiLoader, FiHeart } from "react-icons/fi";
 
 // Get the API URL from environment variables
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "https://4plusone.onrender.com";
 
 export default function Login({ setToken }) {
   const [error, setError] = useState(null);
