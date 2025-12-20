@@ -41,7 +41,7 @@ export default function ProfilePage() {
       const formatUrl = (url) => {
         if (!url) return null;
         if (url.startsWith('http')) return url; // Full Supabase URL
-        return `${import.meta.env.VITE_API_URL || "http://localhost:4000"}${url}`;
+        return `${import.meta.env.VITE_API_URL}${url}`;
       };
 
       // 1. Set current photo

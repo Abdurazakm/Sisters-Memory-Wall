@@ -1,161 +1,146 @@
 import { useState, useEffect, useRef } from "react";
 import confetti from "canvas-confetti";
+import { FiLock, FiUnlock, FiX } from "react-icons/fi";
 
 export default function SisterCard({ sister }) {
   const [showSurprise, setShowSurprise] = useState(false);
   const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
   const [password, setPassword] = useState("");
-  const [bounce, setBounce] = useState(true);
+  const [bounce, setBounce] = useState(false);
   const [currentPhoto, setCurrentPhoto] = useState(0);
   const [isSwapping, setIsSwapping] = useState(false);
   
-  const intervalRef = useRef(null);
+  const slowConfettiInterval = useRef(null);
   const galleryIntervalRef = useRef(null);
   const audioRef = useRef(null);
   const swapAudioRef = useRef(null); 
 
   const today = new Date().toISOString().split("T")[0];
   const unlocked = sister.graduationDate && today >= sister.graduationDate;
-
   const gallery = sister.gallery || [sister.photo];
-  const captions = sister.galleryCaptions || [
-    sister.caption || "🎓 Congratulations!",
-  ];
+  const captions = sister.galleryCaptions || [sister.caption || "🎓 Congratulations!"];
 
-  const fireConfetti = () => {
-    confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+  // 1. BIG FRONT BURST (Large particles, highest Z-index)
+  const fireBurst = () => {
+    const common = {
+      particleCount: 60,
+      spread: 90,
+      scalar: 1.5, // Makes confetti 50% larger
+      zIndex: 2000,
+      colors: ['#a855f7', '#fb7185', '#ffffff', '#FFD700', '#4ade80']
+    };
+
+    confetti({ ...common, angle: 60, origin: { x: 0, y: 0.7 } });
+    confetti({ ...common, angle: 120, origin: { x: 1, y: 0.7 } });
   };
 
-  const startSlowConfetti = () => {
-    intervalRef.current = setInterval(() => {
+  // 2. CONTINUOUS CELEBRATION RAIN (Large falling pieces)
+  const startContinuousRain = () => {
+    stopConfettiTimers(); 
+    slowConfettiInterval.current = setInterval(() => {
       confetti({
         particleCount: 5,
-        spread: 60,
-        origin: { y: 0 },
-        gravity: 0.4,
-        scalar: 0.7,
+        startVelocity: 0,
+        ticks: 300,
+        gravity: 1.2, // Faster fall
+        origin: { x: Math.random(), y: -0.1 },
+        zIndex: 2000,
+        scalar: 1.2, // Larger pieces
+        colors: ['#a855f7', '#ffffff', '#fb7185'],
       });
-    }, 1500);
+    }, 400); 
   };
 
-  const stopConfetti = () => clearInterval(intervalRef.current);
+  const stopConfettiTimers = () => {
+    if (slowConfettiInterval.current) clearInterval(slowConfettiInterval.current);
+  };
 
   const startGallery = () => {
-    fireConfetti();
     clearInterval(galleryIntervalRef.current);
-    
     galleryIntervalRef.current = setInterval(() => {
-      // 1. Play Swap Sound
+      setIsSwapping(true);
       if (swapAudioRef.current) {
-        swapAudioRef.current.volume = 0.2; // Set it lower so it's a subtle "pop"
-        swapAudioRef.current.currentTime = 0; // Reset to start
+        swapAudioRef.current.currentTime = 0;
         swapAudioRef.current.play().catch(() => {});
       }
-      
-      // 2. Trigger Animation
-      setIsSwapping(true);
-      setTimeout(() => setIsSwapping(false), 500);
-
-      // 3. Change Photo
-      setCurrentPhoto((prev) => {
-        const next = (prev + 1) % gallery.length;
-        fireConfetti();
-        return next;
-      });
-    }, 4000); // Increased to 4 seconds for a better "mobile viewing" pace
+      setTimeout(() => {
+        setCurrentPhoto((prev) => (prev + 1) % gallery.length);
+        setIsSwapping(false);
+        fireBurst(); // Celeberate the swap in the front
+      }, 500);
+    }, 4500); 
   };
 
   const checkPassword = () => {
-    if (password.toLowerCase() === "surprise") {
+    if (password.toLowerCase() === "surprisefromabdurazak") {
       setShowPasswordPrompt(false);
       setShowSurprise(true);
-      setBounce(true);
-      fireConfetti();
-      startSlowConfetti();
-      
-      if (audioRef.current) {
-        audioRef.current.volume = 0.4;
-        audioRef.current.play().catch(() => {});
-      }
-
+      setBounce(true); 
+      fireBurst();
+      startContinuousRain();
+      if (audioRef.current) audioRef.current.play().catch(() => {});
       setTimeout(() => {
         setBounce(false);
         startGallery();
       }, 5000);
     } else {
-      alert("Wrong password (try 'surprise')");
+      alert("Try again!");
     }
   };
 
   const closeSurprise = () => {
     setShowSurprise(false);
-    stopConfetti();
+    stopConfettiTimers();
+    clearInterval(galleryIntervalRef.current);
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
-    clearInterval(galleryIntervalRef.current);
     setCurrentPhoto(0);
   };
 
-  useEffect(() => {
-    return () => {
-      stopConfetti();
-      clearInterval(galleryIntervalRef.current);
-    };
+  useEffect(() => () => {
+    stopConfettiTimers();
+    clearInterval(galleryIntervalRef.current);
   }, []);
 
   return (
     <>
       {/* Main Card */}
-      <div className="bg-white rounded-[2.5rem] shadow-sm border border-purple-50 p-6 text-center hover:shadow-xl transition-all duration-300">
-        <div className="w-20 h-20 bg-purple-100 rounded-3xl flex items-center justify-center mx-auto mb-4 text-4xl">
-          👩‍🎓
+      <div className="group bg-white rounded-[2.5rem] shadow-sm border border-purple-50 p-6 text-center hover:shadow-xl transition-all duration-500 hover:-translate-y-2 animate-bounce-subtle">
+        <div className="w-20 h-20 bg-purple-50 rounded-[2rem] flex items-center justify-center mx-auto mb-4 text-4xl group-hover:scale-110 transition-transform">
+          {sister.emoji || "👩‍🎓"}
         </div>
-        <h3 className="text-xl font-black text-gray-800 tracking-tight">
-          {sister.name}
-        </h3>
-        <p className="text-gray-500 mt-2 text-sm leading-relaxed px-2">
-          {sister.note}
-        </p>
-
-        {sister.graduated && (
-          <div className="mt-6 space-y-3">
-            <span className="inline-block bg-emerald-50 text-emerald-600 px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest">
-              🎓 Graduated
-            </span>
-            <button
-              disabled={!unlocked}
-              onClick={() => setShowPasswordPrompt(true)}
-              className={`w-full py-4 rounded-2xl shadow-lg text-white font-black text-sm uppercase tracking-widest transition-all active:scale-95 ${
-                unlocked
-                  ? "bg-gradient-to-r from-purple-600 to-indigo-600"
-                  : "bg-gray-200 text-gray-400 shadow-none cursor-not-allowed"
-              }`}
-            >
-              {unlocked ? "🎁 Open Surprise" : "🔒 Unlocks Soon"}
-            </button>
-          </div>
-        )}
+        <h3 className="text-xl font-black text-gray-800 tracking-tight uppercase">{sister.name}</h3>
+        <p className="text-gray-500 mt-2 text-xs italic leading-relaxed px-2 line-clamp-2">"{sister.note}"</p>
+        <div className="mt-6">
+          <button
+            disabled={!unlocked}
+            onClick={() => setShowPasswordPrompt(true)}
+            className={`w-full py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-95 ${
+              unlocked ? "bg-purple-600 text-white shadow-lg shadow-purple-100" : "bg-gray-100 text-gray-400"
+            }`}
+          >
+            {unlocked ? "🎁 Open Surprise" : "🔒 Locked"}
+          </button>
+        </div>
       </div>
 
       {/* Password Prompt */}
       {showPasswordPrompt && (
-        <div className="fixed inset-0 bg-purple-900/40 backdrop-blur-sm flex items-center justify-center z-[110] p-6">
-          <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center shadow-2xl animate-in zoom-in duration-300">
-            <h2 className="text-2xl font-black text-gray-800">Secret Key</h2>
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-purple-900/40 backdrop-blur-md" onClick={() => setShowPasswordPrompt(false)} />
+          <div className="relative bg-white rounded-[2.5rem] p-8 w-full max-w-sm text-center shadow-2xl animate-in zoom-in duration-300">
+            <h2 className="text-2xl font-black text-gray-800 uppercase tracking-tight">Secret Key</h2>
             <input
-              type="password"
+              type="text"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full mt-4 p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-center focus:border-purple-500 outline-none font-bold"
-              placeholder="Enter password..."
+              className="w-full mt-6 p-4 bg-gray-50 border-2 border-transparent focus:border-purple-500 rounded-2xl text-center outline-none font-bold text-lg"
+              placeholder="••••"
               autoFocus
             />
-            <button
-              onClick={checkPassword}
-              className="w-full mt-6 bg-purple-600 text-white p-4 rounded-2xl font-black text-sm uppercase tracking-widest active:scale-95 transition-all"
-            >
+            <button onClick={checkPassword} className="w-full mt-6 bg-purple-600 text-white p-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95">
               Unlock 🤍
             </button>
           </div>
@@ -164,44 +149,24 @@ export default function SisterCard({ sister }) {
 
       {/* Surprise Modal */}
       {showSurprise && (
-        <div className="fixed inset-0 bg-purple-950/60 backdrop-blur-md flex items-center justify-center z-[120] p-4">
-          <div
-            className={`bg-white rounded-[3rem] p-6 sm:p-10 max-w-md w-full text-center shadow-2xl relative overflow-hidden ${
-              bounce ? "animate-bounce" : ""
-            }`}
-          >
-            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500"></div>
-            <h2 className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600 mb-2">
-              Mabrook! 🎉
-            </h2>
-
-            <div className={`relative mt-6 aspect-square overflow-hidden rounded-[2rem] shadow-inner bg-gray-50 transition-all duration-300 ${isSwapping ? 'scale-95 opacity-80' : 'scale-100 opacity-100'}`}>
-                <img
-                src={gallery[currentPhoto]}
-                alt="Celebration"
-                className="w-full h-full object-cover"
-                key={currentPhoto}
-                />
+        <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-2xl" onClick={closeSurprise} />
+          <div className={`relative bg-white rounded-[3rem] p-6 max-w-md w-full text-center shadow-2xl overflow-hidden transition-all duration-500 ${bounce ? "animate-bounce" : ""}`}>
+            <button onClick={closeSurprise} className="absolute top-5 right-5 z-[1200] p-2 bg-gray-100 rounded-full text-gray-500 active:scale-75"><FiX /></button>
+            <h2 className="text-3xl font-black text-purple-600 mb-2 tracking-tighter uppercase">Mabrook! 🎉</h2>
+            <div className={`relative mt-4 aspect-square overflow-hidden rounded-[2.5rem] bg-gray-100 shadow-inner transition-all duration-500 ${isSwapping ? 'scale-90 opacity-0' : 'scale-100 opacity-100'}`}>
+                <img src={gallery[currentPhoto]} alt="Celebration" className="w-full h-full object-cover" />
             </div>
-
-            <div className="mt-6 min-h-[3rem]">
-                <p className="text-gray-700 font-bold text-lg italic leading-tight">
-                "{captions[currentPhoto]}"
-                </p>
-            </div>
-
-            <button
-              onClick={closeSurprise}
-              className="mt-8 w-full bg-gray-900 text-white p-4 rounded-2xl font-black text-sm uppercase tracking-widest active:scale-95 transition-all"
-            >
+            <p className="mt-6 text-gray-800 font-bold italic text-lg leading-tight">"{captions[currentPhoto]}"</p>
+            <button onClick={closeSurprise} className="mt-8 w-full bg-gray-900 text-white p-4 rounded-2xl font-black text-xs uppercase tracking-widest">
               Close 🤍
             </button>
           </div>
         </div>
       )}
 
-      <audio ref={audioRef} src="/celebration.mp3" preload="auto" />
-      <audio ref={swapAudioRef} src="/swap-sound.mp3" preload="auto" />
+      <audio ref={audioRef} src="/celebration.mp3" />
+      <audio ref={swapAudioRef} src="/swap-sound.mp3" />
     </>
   );
 }

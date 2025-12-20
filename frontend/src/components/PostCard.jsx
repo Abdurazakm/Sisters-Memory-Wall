@@ -4,7 +4,7 @@ import { deletePost, updatePost } from "../api";
 import { getFileType } from "./SharedComponents";
 import CommentSection from "./CommentSection";
 
-const BACKEND_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+const BACKEND_URL = import.meta.env.VITE_API_URL;
 
 export default function PostCard({ post, isMine, onRefresh, onOpenMedia }) {
   const [showComments, setShowComments] = useState(false);

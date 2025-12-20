@@ -10,7 +10,7 @@ import {
 import { getMessages, addMessage, markRead } from "../api"; // Ensure markRead is imported
 import { useNavigate } from "react-router-dom";
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
 /* ---------------- HELPERS ---------------- */
 const getFileType = (fileType, fileName) => {

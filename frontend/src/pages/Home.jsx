@@ -13,7 +13,7 @@ import { FaPrayingHands } from "react-icons/fa";
 import DuaCard from "../components/DuaCard";
 import { getUserProfile } from "../api"; 
 
-const BACKEND_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+const BACKEND_URL = import.meta.env.VITE_API_URL;
 
 export default function Home() {
   const navigate = useNavigate();
@@ -36,9 +36,7 @@ export default function Home() {
           setUserPhoto(fullUrl);
         }
       }
-    } catch (err) {
-      console.error("Error fetching header profile photo:", err);
-    }
+    } catch (err) { console.error("Profile fetch error:", err); }
   };
 
   const fetchLatestDua = async () => {
@@ -51,190 +49,147 @@ export default function Home() {
       const data = await res.json();
       const dua = data.find((p) => p.type === "dua");
       setLatestDua(dua);
-    } catch (err) {
-      console.error("Error fetching latest dua:", err);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { console.error("Dua fetch error:", err); } finally { setLoading(false); }
   };
 
   useEffect(() => {
     fetchLatestDua();
     fetchHeaderProfile();
-
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setShowDropdown(false);
-      }
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setShowDropdown(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   function handleLogout() {
-    localStorage.removeItem("token");
-    localStorage.removeItem("username");
+    localStorage.clear();
     window.location.href = "/login";
   }
 
   return (
-    /* Added pb-32 to provide clearance for the BottomNav */
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-emerald-50 p-3 md:p-8 pb-32">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-[#fafafa] pb-32 overflow-x-hidden">
+      {/* Premium Gradient Background Blob for Mobile */}
+      <div className="fixed top-0 left-0 w-full h-64 bg-gradient-to-b from-purple-100/50 to-transparent -z-10" />
+
+      <div className="max-w-6xl mx-auto px-4 pt-4">
         
         <Header />
 
-        {/* --- QUICK ACTION DASHBOARD --- */}
-        <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 mb-8 bg-white/80 backdrop-blur-md p-4 rounded-3xl shadow-sm border border-purple-100 relative z-40">
-          
-          <div className="flex flex-col xs:flex-row flex-wrap gap-2 sm:gap-3">
-            <button
-              onClick={() => navigate("/feed")}
-              className="flex-1 group flex items-center justify-center sm:justify-start gap-2 bg-purple-600 text-white px-5 py-3 rounded-2xl hover:bg-purple-700 transition-all shadow-md active:scale-95"
-            >
-              <FiLayout /> 
-              <span className="font-bold text-sm">Feed</span>
-            </button>
-            
-            <button
-              onClick={() => navigate("/feed", { state: { openDuaModal: true } })}
-              className="flex-1 flex items-center justify-center sm:justify-start gap-2 bg-emerald-600 text-white px-5 py-3 rounded-2xl hover:bg-emerald-700 transition-all shadow-md active:scale-95"
-            >
-              <FaPrayingHands /> 
-              <span className="font-bold text-sm">Request Dua</span>
-            </button>
-
-            <button
-              onClick={() => navigate("/messages")}
-              className="flex-1 flex items-center justify-center sm:justify-start gap-2 bg-white text-gray-700 border border-gray-200 px-5 py-3 rounded-2xl hover:bg-gray-50 transition-all font-bold text-sm shadow-sm"
-            >
-              <FiMessageCircle className="text-purple-500" /> Chat
-            </button>
+        {/* --- MOBILE OPTIMIZED USER BAR --- */}
+        <div className="flex items-center justify-between mb-8 mt-2 bg-white p-2 rounded-[2rem] shadow-sm border border-gray-100">
+          <div className="flex items-center gap-3 pl-2">
+            <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center text-white overflow-hidden shadow-lg ring-2 ring-white">
+              {userPhoto ? <img src={userPhoto} className="w-full h-full object-cover" /> : <FiUser size={20} />}
+            </div>
+            <div>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-tighter">Assalamu Alaikum,</p>
+              <p className="text-sm font-black text-gray-800">{currentUser || "Sister"}</p>
+            </div>
           </div>
-
-          {/* --- USER DROPDOWN --- */}
-          <div className="relative mt-2 sm:mt-0" ref={dropdownRef}>
-            <button
+          
+          <div className="relative" ref={dropdownRef}>
+            <button 
               onClick={() => setShowDropdown(!showDropdown)}
-              className="w-full flex items-center justify-between sm:justify-start gap-2 bg-white border border-gray-100 p-1.5 pr-4 rounded-2xl hover:shadow-md transition-all active:scale-95"
+              className="p-3 text-gray-400 hover:text-purple-600 transition-colors"
             >
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-600 flex items-center justify-center text-white overflow-hidden shadow-inner border border-purple-100">
-                  {userPhoto ? (
-                    <img src={userPhoto} alt="Me" className="w-full h-full object-cover" />
-                  ) : (
-                    <FiUser size={20} />
-                  )}
-                </div>
-                <div className="text-left">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase leading-none mb-1">Signed in</p>
-                  <p className="text-sm font-black text-gray-800 leading-none truncate max-w-[100px]">{currentUser || "Sister"}</p>
-                </div>
-              </div>
-              <FiChevronDown className={`text-gray-400 transition-transform duration-300 ${showDropdown ? 'rotate-180' : ''}`} />
+              <FiSettings size={20} className={showDropdown ? 'rotate-90 transition-transform' : ''} />
             </button>
 
             {showDropdown && (
-              <div className="absolute right-0 left-0 sm:left-auto mt-2 sm:w-56 bg-white rounded-2xl shadow-2xl border border-gray-100 z-[100] py-2 animate-in fade-in slide-in-from-top-2 ring-1 ring-black/5">
-                <button 
-                  onClick={() => { navigate("/profile"); setShowDropdown(false); }}
-                  className="w-full flex items-center gap-3 px-4 py-4 sm:py-3 text-sm font-bold text-gray-700 hover:bg-purple-50 transition-colors"
-                >
-                  <FiUser className="text-purple-500" size={18} /> View Profile
-                </button>
-                <button 
-                  onClick={() => { navigate("/settings"); setShowDropdown(false); }}
-                  className="w-full flex items-center gap-3 px-4 py-4 sm:py-3 text-sm font-bold text-gray-700 hover:bg-purple-50 transition-colors"
-                >
-                  <FiSettings className="text-gray-400" size={18} /> Settings
-                </button>
-                <div className="h-px bg-gray-100 my-1 mx-2"></div>
-                <button 
-                  onClick={handleLogout}
-                  className="w-full flex items-center gap-3 px-4 py-4 sm:py-3 text-sm font-bold text-red-500 hover:bg-red-50 transition-colors"
-                >
-                  <FiLogOut size={18} /> Logout
-                </button>
+              <div className="absolute right-0 mt-3 w-48 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-100 z-[100] py-2 animate-in fade-in slide-in-from-top-2">
+                <button onClick={() => navigate("/profile")} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-black text-gray-600 hover:bg-purple-50 transition-colors uppercase tracking-widest"><FiUser size={14} /> Profile</button>
+                <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-black text-red-500 hover:bg-red-50 transition-colors uppercase tracking-widest"><FiLogOut size={14} /> Logout</button>
               </div>
             )}
           </div>
         </div>
 
-        {/* --- DUA SPOTLIGHT SECTION --- */}
-        <section className="mb-10 relative z-10 px-1">
-          <div className="flex flex-col xs:flex-row items-start xs:items-center justify-between mb-5 gap-3">
-            <div className="flex items-center gap-3">
-              <div className="bg-emerald-500 p-2 rounded-xl shadow-md">
-                <FiZap className={`${loading ? 'animate-pulse' : ''} text-white`} size={20} />
-              </div>
-              <div>
-                <h2 className="text-lg font-black text-gray-800 leading-none">Latest Dua</h2>
-                <p className="text-[10px] text-emerald-600 font-bold uppercase mt-1">From the Family</p>
-              </div>
+        {/* --- HORIZONTAL ACTION SCROLLER (Best for Mobile Thumbs) --- */}
+        <div className="flex gap-3 overflow-x-auto pb-4 no-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
+          <button
+            onClick={() => navigate("/feed")}
+            className="flex-shrink-0 flex items-center gap-3 bg-purple-600 text-white px-6 py-4 rounded-[1.8rem] shadow-xl shadow-purple-200 active:scale-95 transition-all"
+          >
+            <FiLayout size={18}/> 
+            <span className="font-black text-xs uppercase tracking-widest">Feed</span>
+          </button>
+          
+          <button
+            onClick={() => navigate("/feed", { state: { openDuaModal: true } })}
+            className="flex-shrink-0 flex items-center gap-3 bg-emerald-500 text-white px-6 py-4 rounded-[1.8rem] shadow-xl shadow-emerald-100 active:scale-95 transition-all"
+          >
+            <FaPrayingHands size={18}/> 
+            <span className="font-black text-xs uppercase tracking-widest">Dua</span>
+          </button>
+
+          <button
+            onClick={() => navigate("/messages")}
+            className="flex-shrink-0 flex items-center gap-3 bg-white text-gray-700 px-6 py-4 rounded-[1.8rem] shadow-sm border border-gray-100 active:scale-95 transition-all"
+          >
+            <FiMessageCircle size={18} className="text-purple-500" />
+            <span className="font-black text-xs uppercase tracking-widest">Chat</span>
+          </button>
+        </div>
+
+        {/* --- LATEST DUA SECTION --- */}
+        <section className="mt-8 mb-10">
+          <div className="flex items-center justify-between mb-4 px-1">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <h2 className="text-[11px] font-black text-gray-400 uppercase tracking-[0.2em]">Latest Dua request</h2>
             </div>
-            {!loading && latestDua && (
-               <button 
-                 onClick={() => navigate("/feed")}
-                 className="text-[11px] font-black text-emerald-600 bg-emerald-50 px-3 py-2 rounded-full flex items-center gap-1"
-               >
-                 VIEW ALL <FiArrowRight />
+            {latestDua && (
+               <button onClick={() => navigate("/feed")} className="text-[10px] font-black text-purple-600 flex items-center gap-1 uppercase">
+                 All <FiArrowRight />
                </button>
             )}
           </div>
 
           {loading ? (
-            <div className="w-full h-40 bg-white/50 border-2 border-dashed border-emerald-200 rounded-3xl flex flex-col items-center justify-center text-emerald-600 animate-pulse">
-              <FiLoader className="animate-spin mb-2" size={24} />
-              <span className="text-xs font-bold">Loading...</span>
+            <div className="w-full h-32 bg-white rounded-3xl border border-gray-100 flex items-center justify-center">
+              <FiLoader className="animate-spin text-purple-200" size={24} />
             </div>
           ) : latestDua ? (
-            <DuaCard 
-              post={latestDua} 
-              currentUser={currentUser} 
-              onRefresh={fetchLatestDua} 
-              isMine={latestDua.author === currentUser}
-            />
+            <div className="transform scale-[0.98] sm:scale-100">
+               <DuaCard post={latestDua} currentUser={currentUser} onRefresh={fetchLatestDua} isMine={latestDua.author === currentUser} />
+            </div>
           ) : (
-            <div 
-              onClick={() => navigate("/feed", { state: { openDuaModal: true } })}
-              className="text-center py-10 bg-white/40 rounded-3xl border-2 border-dashed border-purple-200 cursor-pointer"
-            >
-              <FiPlusCircle className="text-purple-300 mx-auto mb-2" size={28} />
-              <p className="text-gray-500 text-sm font-bold">Ask for a Dua</p>
+            <div onClick={() => navigate("/feed", { state: { openDuaModal: true } })} className="py-8 bg-white rounded-[2rem] border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400 hover:border-purple-300 transition-colors">
+              <FiPlusCircle size={24} className="mb-2" />
+              <p className="text-[10px] font-black uppercase tracking-widest">Ask for a Dua</p>
             </div>
           )}
         </section>
 
         {/* --- SISTERS GALLERY --- */}
-        <section className="relative z-0 px-1">
-          <div className="mb-6 flex items-end justify-between">
+        <section className="mt-12">
+          <div className="mb-6 flex items-end justify-between px-1">
               <div>
                 <h2 className="text-2xl font-black text-gray-900 leading-none">Sisters</h2>
-                <div className="h-1 w-8 bg-purple-500 rounded-full mt-2"></div>
+                <div className="h-1 w-6 bg-purple-500 rounded-full mt-2"></div>
               </div>
-              <span className="text-gray-400 text-[9px] font-black uppercase tracking-widest bg-white px-3 py-1 rounded-full border border-gray-100 shadow-sm">
-                  {sistersData.length} Sisters
+              <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
+                  {sistersData.length} total
               </span>
           </div>
           
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {sistersData.map((s) => (
               <SisterCard key={s.id} sister={s} />
             ))}
           </div>
         </section>
 
-        {/* Footer */}
-        <div className="mt-16 pt-10 border-t border-purple-100">
+        {/* Footer/Bottom Dua Component */}
+        <div className="mt-16 pt-10 border-t border-gray-100">
           <DuaSection />
-          <p className="text-center text-gray-400 text-[9px] font-bold mt-10 uppercase tracking-[0.3em] pb-10">
+          <p className="text-center text-gray-300 text-[8px] font-black mt-10 uppercase tracking-[0.4em] pb-10">
             Sisters Memory Wall &copy; 2024
           </p>
         </div>
-
       </div>
 
-      {/* REUSABLE NAVIGATION */}
       <BottomNav />
     </div>
   );

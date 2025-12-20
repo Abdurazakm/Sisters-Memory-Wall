@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate } from "react-router-dom";
-import { FiUser, FiLock, FiLoader, FiHeart } from "react-icons/fi"; // Added icons
+import { FiUser, FiLock, FiLoader, FiHeart } from "react-icons/fi";
+
+// Get the API URL from environment variables
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export default function Login({ setToken }) {
   const [error, setError] = useState(null);
@@ -16,7 +19,8 @@ export default function Login({ setToken }) {
     const password = e.target.p.value;
 
     try {
-      const res = await fetch("http://localhost:4000/api/login", {
+      // Use the variable here instead of the hardcoded link
+      const res = await fetch(`${API_BASE_URL}/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
@@ -26,6 +30,7 @@ export default function Login({ setToken }) {
       
       if (!res.ok) {
         setError(data.error || "Login failed");
+        setLoading(false); // Stop loading if there is an error
         return;
       }
       
@@ -44,9 +49,9 @@ export default function Login({ setToken }) {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-100 via-white to-pink-50 py-12 px-4 sm:px-6 lg:px-8">
+      {/* ... rest of your beautiful UI code remains exactly the same ... */}
       <div className="max-w-md w-full space-y-8 bg-white/80 backdrop-blur-xl p-10 rounded-[2.5rem] shadow-2xl border border-white relative overflow-hidden">
         
-        {/* Decorative Top Bar */}
         <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-500 via-pink-500 to-emerald-500"></div>
 
         <div className="text-center">
@@ -104,11 +109,7 @@ export default function Login({ setToken }) {
               disabled={loading}
               className="group relative w-full flex justify-center items-center gap-2 py-4 px-4 border border-transparent text-sm font-black uppercase tracking-widest rounded-2xl text-white bg-purple-600 hover:bg-purple-700 shadow-lg shadow-purple-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:bg-purple-300 transition-all active:scale-95"
             >
-              {loading ? (
-                <FiLoader className="animate-spin" size={20} />
-              ) : (
-                "Enter Wall"
-              )}
+              {loading ? <FiLoader className="animate-spin" size={20} /> : "Enter Wall"}
             </button>
           </div>
         </form>

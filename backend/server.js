@@ -13,7 +13,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: { 
-    origin: "http://localhost:5173",
+    origin: "https://4plusone.netlify.app",
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true
   },
@@ -22,7 +22,7 @@ const io = socketIo(server, {
 // Initialize Supabase
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
-app.use(cors({ origin: "http://localhost:5173", credentials: true }));
+app.use(cors({ origin: "https://4plusone.netlify.app", credentials: true }));
 app.use(express.json());
 
 const ALLOWED_USERS = ["Abdurazaqm", "Semira", "ZebibaS", "Hawlet", "ZebibaM"];

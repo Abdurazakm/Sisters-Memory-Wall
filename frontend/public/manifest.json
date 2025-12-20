@@ -1,0 +1,31 @@
+{
+  "short_name": "4PlusOne",
+  "name": "4PlusOne Sisters’ Wall",
+  "description": "A private space for the Four sisters to share memories and Duas.",
+  "icons": [
+    {
+      "src": "4PlusOne.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "4PlusOne.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "4PlusOne.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#9333ea",
+  "background_color": "#ffffff",
+  "orientation": "portrait",
+  "scope": "/"
+}
