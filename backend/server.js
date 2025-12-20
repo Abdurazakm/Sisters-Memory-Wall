@@ -13,7 +13,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: { 
-    origin: "*",
+    origin: "https://4plusone.netlify.app",
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true
   },
@@ -22,8 +22,15 @@ const io = socketIo(server, {
 // Initialize Supabase
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
-app.use(cors({ origin: "*", credentials: true }));
-app.use(express.json());
+app.use(cors({
+  origin: "https://4plusone.netlify.app",
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // Added OPTIONS
+  allowedHeaders: ["Content-Type", "Authorization"],   // Explicitly allow these
+  credentials: true
+}));
+
+// Add this right after the cors middleware to handle preflight globally
+app.options("*", cors());app.use(express.json());
 
 const ALLOWED_USERS = ["Abdurazaqm", "Semira", "ZebibaS", "Hawlet", "ZebibaM"];
 
