@@ -12,25 +12,34 @@ require("dotenv").config();
 const app = express();
 const server = http.createServer(app);
 
-// 1. OPEN CORS CONFIGURATION (Accepts everything)
+// 1. IMPROVED CORS CONFIGURATION
+// Browsers sometimes reject "*" if you are sending Authorization headers.
+// It is better to be explicit with your Netlify URL.
+const corsOptions = {
+  origin: "https://4plusone.netlify.app",
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
+};
+
+// 2. Setup Socket.io with the same options
 const io = socketIo(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true
-  }
+  cors: corsOptions
 });
 
-// 2. Initialize Supabase
+// 3. Initialize Supabase
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
-// 3. APPLY OPEN MIDDLEWARE
-app.use(cors()); // Empty/Default allows all origins
+// 4. APPLY MIDDLEWARE
+app.use(cors(corsOptions));
+// Handle the "Preflight" OPTIONS request specifically
+app.options("*", cors(corsOptions)); 
 app.use(express.json());
 
 const ALLOWED_USERS = ["Abdurazaqm", "Semira", "ZebibaS", "Hawlet", "ZebibaM"];
 
 /* ================== AUTH MIDDLEWARE ================== */
+// Cleaned up (removed the duplicate you had below)
 function auth(req, res, next) {
   const header = req.headers.authorization;
   if (!header) return res.status(401).json({ error: "No token" });
@@ -38,7 +47,9 @@ function auth(req, res, next) {
     const token = header.split(" ")[1];
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
-  } catch (err) { res.status(401).json({ error: "Invalid token" }); }
+  } catch (err) { 
+    res.status(401).json({ error: "Invalid token" }); 
+  }
 }
 
 /* ================== MULTER CONFIG ================== */
@@ -68,15 +79,15 @@ async function uploadToSupabase(file) {
 }
 
 /* ================== AUTH MIDDLEWARE ================== */
-function auth(req, res, next) {
-  const header = req.headers.authorization;
-  if (!header) return res.status(401).json({ error: "No token" });
-  try {
-    const token = header.split(" ")[1];
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
-    next();
-  } catch (err) { res.status(401).json({ error: "Invalid token" }); }
-}
+// function auth(req, res, next) {
+//   const header = req.headers.authorization;
+//   if (!header) return res.status(401).json({ error: "No token" });
+//   try {
+//     const token = header.split(" ")[1];
+//     req.user = jwt.verify(token, process.env.JWT_SECRET);
+//     next();
+//   } catch (err) { res.status(401).json({ error: "Invalid token" }); }
+// }
 
 /* ================== AUTH & PROFILE ROUTES ================== */
 app.post("/api/login", async (req, res) => {
