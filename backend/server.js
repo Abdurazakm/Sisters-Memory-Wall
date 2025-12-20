@@ -11,28 +11,41 @@ require("dotenv").config();
 
 const app = express();
 const server = http.createServer(app);
+
+// 1. Define CORS Options once to reuse them
+const corsOptions = {
+  origin: "https://4plusone.netlify.app",
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
+};
+
+// 2. Setup Socket.io with those options
 const io = socketIo(server, {
-  cors: { 
-    origin: "https://4plusone.netlify.app",
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true
-  },
+  cors: corsOptions
 });
 
-// Initialize Supabase
+// 3. Initialize Supabase
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
-app.use(cors({
-  origin: "https://4plusone.netlify.app",
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // Added OPTIONS
-  allowedHeaders: ["Content-Type", "Authorization"],   // Explicitly allow these
-  credentials: true
-}));
+// 4. APPLY CORS MIDDLEWARE
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions)); // Handle preflight for all routes
 
-// Add this right after the cors middleware to handle preflight globally
-app.options("*", cors());app.use(express.json());
+app.use(express.json());
 
+/* ================== CONSTANTS & AUTH ================== */
 const ALLOWED_USERS = ["Abdurazaqm", "Semira", "ZebibaS", "Hawlet", "ZebibaM"];
+
+function auth(req, res, next) {
+  const header = req.headers.authorization;
+  if (!header) return res.status(401).json({ error: "No token" });
+  try {
+    const token = header.split(" ")[1];
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    next();
+  } catch (err) { res.status(401).json({ error: "Invalid token" }); }
+}
 
 /* ================== MULTER CONFIG ================== */
 const storage = multer.memoryStorage();
@@ -368,9 +381,11 @@ async function seedUsers() {
   } catch (err) { console.error("Seeding Error:", err); }
 }
 
+// Socket Auth Middleware
 io.use((socket, next) => {
   try {
     const token = socket.handshake.auth.token;
+    if (!token) return next(new Error("No token provided"));
     socket.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch (err) { next(new Error("Auth error")); }
