@@ -12,31 +12,25 @@ require("dotenv").config();
 const app = express();
 const server = http.createServer(app);
 
-// 1. Define CORS Options once to reuse them
-const corsOptions = {
-  origin: "https://4plusone.netlify.app",
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true
-};
-
-// 2. Setup Socket.io with those options
+// 1. OPEN CORS CONFIGURATION (Accepts everything)
 const io = socketIo(server, {
-  cors: corsOptions
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true
+  }
 });
 
-// 3. Initialize Supabase
+// 2. Initialize Supabase
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
-// 4. APPLY CORS MIDDLEWARE
-app.use(cors(corsOptions));
-app.options("*", cors(corsOptions)); // Handle preflight for all routes
-
+// 3. APPLY OPEN MIDDLEWARE
+app.use(cors()); // Empty/Default allows all origins
 app.use(express.json());
 
-/* ================== CONSTANTS & AUTH ================== */
 const ALLOWED_USERS = ["Abdurazaqm", "Semira", "ZebibaS", "Hawlet", "ZebibaM"];
 
+/* ================== AUTH MIDDLEWARE ================== */
 function auth(req, res, next) {
   const header = req.headers.authorization;
   if (!header) return res.status(401).json({ error: "No token" });
@@ -119,13 +113,11 @@ app.post("/api/profile/photo", auth, upload.single("photo"), async (req, res) =>
   } catch (err) { res.status(500).json({ error: "Upload failed" }); }
 });
 
-// FIXED SETTINGS ROUTE
 app.put("/api/profile/settings", auth, async (req, res) => {
   try {
     const oldUsername = req.user.userId;
     const { newUsername, newPassword, bio, currentPassword } = req.body;
 
-    // 1. Get current user data
     const { data: user, error: userError } = await supabase
       .from('users')
       .select('password')
@@ -134,7 +126,6 @@ app.put("/api/profile/settings", auth, async (req, res) => {
 
     if (userError || !user) return res.status(404).json({ error: "User not found" });
 
-    // 2. Verify current password
     const isMatch = await bcrypt.compare(currentPassword, user.password);
     if (!isMatch) return res.status(401).json({ error: "Current password is incorrect." });
 
@@ -144,13 +135,10 @@ app.put("/api/profile/settings", auth, async (req, res) => {
       updates.password = await bcrypt.hash(newPassword, 10);
     }
 
-    // 3. Handle Username Change
     if (newUsername && newUsername !== oldUsername) {
       const { data: existing } = await supabase.from('users').select('username').eq('username', newUsername).maybeSingle();
       if (existing) return res.status(400).json({ error: "Username taken." });
 
-      // If your Supabase doesn't have "ON UPDATE CASCADE" enabled on foreign keys, 
-      // you must update all related tables manually:
       await supabase.from('posts').update({ author: newUsername }).eq('author', oldUsername);
       await supabase.from('messages').update({ author: newUsername }).eq('author', oldUsername);
       await supabase.from('comments').update({ author: newUsername }).eq('author', oldUsername);
@@ -160,7 +148,6 @@ app.put("/api/profile/settings", auth, async (req, res) => {
       updates.username = newUsername;
     }
 
-    // 4. Update the user
     const { error: updateError } = await supabase.from('users').update(updates).eq('username', oldUsername);
     if (updateError) throw updateError;
 
@@ -381,7 +368,6 @@ async function seedUsers() {
   } catch (err) { console.error("Seeding Error:", err); }
 }
 
-// Socket Auth Middleware
 io.use((socket, next) => {
   try {
     const token = socket.handshake.auth.token;
