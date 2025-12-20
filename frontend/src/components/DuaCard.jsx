@@ -1,62 +1,68 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { FiMoreVertical, FiEdit2, FiTrash2, FiCheck, FiCheckCircle, FiUsers } from "react-icons/fi";
 import { FaPrayingHands } from "react-icons/fa";
-import { updatePost, deletePost } from "../api";
-
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
+import { updatePost, deletePost, confirmDua, sayAminToDua } from "../api";
 
 export default function DuaCard({ post, currentUser, onRefresh, isMine }) {
   const [showMenu, setShowMenu] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(post.text);
+  const [highlight, setHighlight] = useState(false);
   
+  const prayerCount = post.confirmations?.length || 0;
+
+  // Visual feedback when a new person makes Dua (Real-time highlight)
+  useEffect(() => {
+    if (prayerCount > 0) {
+      setHighlight(true);
+      const timer = setTimeout(() => setHighlight(false), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [prayerCount]);
+
   const prayedByMe = post.confirmations?.some(c => c.username === currentUser);
 
   const handleAmeen = async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/dua/confirm/${post.id}`, {
-        method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${localStorage.getItem("token")}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      if (res.ok) onRefresh();
-    } catch (err) { console.error(err); }
+      await confirmDua(post.id);
+      onRefresh();
+    } catch (err) { 
+      console.error("Dua confirmation failed:", err); 
+    }
   };
 
   const handleSayAmin = async (confId) => {
     if (!confId) return;
     try {
-      const res = await fetch(`${BACKEND_URL}/api/dua/thank/${confId}`, {
-        method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${localStorage.getItem("token")}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      if (res.ok) onRefresh();
+      await sayAminToDua(confId);
+      onRefresh();
     } catch (err) { 
       console.error("Error saying Amin:", err); 
     }
   };
 
   const handleSaveEdit = async () => {
-    await updatePost(post.id, editText);
-    setIsEditing(false);
-    onRefresh();
+    try {
+      await updatePost(post.id, editText);
+      setIsEditing(false);
+      onRefresh();
+    } catch (err) {
+      console.error("Edit failed:", err);
+    }
   };
 
   return (
-    <div className="bg-gradient-to-br from-emerald-50 to-white border-2 border-emerald-100 rounded-3xl p-6 shadow-sm mb-6 relative overflow-hidden transition-all hover:shadow-md">
+    <div className={`bg-gradient-to-br from-emerald-50 to-white border-2 rounded-3xl p-6 shadow-sm mb-6 relative overflow-hidden transition-all duration-700 ${highlight ? 'border-emerald-400 ring-4 ring-emerald-100' : 'border-emerald-100'}`}>
+      
+      {/* Decorative background icon */}
       <div className="absolute top-0 right-0 p-4 opacity-10">
         <FaPrayingHands size={80} className="text-emerald-900" />
       </div>
       
       <div className="flex justify-between items-start mb-4 relative z-20">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-white shadow-lg shadow-emerald-200">
-            <FaPrayingHands size={24} />
+          <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white shadow-lg transition-all duration-500 ${highlight ? 'bg-emerald-400 scale-110' : 'bg-emerald-600 shadow-emerald-200'}`}>
+            <FaPrayingHands size={24} className={highlight ? "animate-bounce" : ""} />
           </div>
           <div>
             <h3 className="font-extrabold text-emerald-900 leading-tight">Dua Request</h3>
@@ -92,7 +98,7 @@ export default function DuaCard({ post, currentUser, onRefresh, isMine }) {
             <textarea value={editText} onChange={(e) => setEditText(e.target.value)} className="w-full border-none focus:ring-0 text-gray-800 text-lg italic font-serif resize-none outline-none" rows="3" />
             <div className="flex justify-end gap-2 mt-2 pt-2 border-t border-emerald-50">
                <button onClick={() => setIsEditing(false)} className="text-xs font-bold text-gray-400 px-3 py-1">Cancel</button>
-               <button onClick={handleSaveEdit} className="bg-emerald-600 text-white text-xs font-bold px-4 py-1 rounded-full"><FiCheck /> Save</button>
+               <button onClick={handleSaveEdit} className="bg-emerald-600 text-white text-xs font-bold px-4 py-1 rounded-full flex items-center gap-1"><FiCheck /> Save</button>
             </div>
           </div>
         ) : (
@@ -119,9 +125,11 @@ export default function DuaCard({ post, currentUser, onRefresh, isMine }) {
         )}
 
         <div className="space-y-2">
-          <div className="flex items-center gap-1.5 text-emerald-700 px-1">
-            <FiUsers size={14}/>
-            <span className="text-[11px] font-black uppercase tracking-wider">{post.confirmations?.length || 0} family members prayed</span>
+          <div className={`flex items-center gap-1.5 px-1 transition-colors duration-500 rounded ${highlight ? 'text-emerald-500 scale-105 origin-left' : 'text-emerald-700'}`}>
+            <FiUsers size={14} className={highlight ? "animate-pulse" : ""}/>
+            <span className="text-[11px] font-black uppercase tracking-wider">
+              {prayerCount} family members prayed
+            </span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -144,7 +152,7 @@ export default function DuaCard({ post, currentUser, onRefresh, isMine }) {
                   </div>
                 </div>
 
-                {isMine ? (
+                {isMine && (
                   <button 
                     disabled={person.is_thanked}
                     className={`text-[10px] font-black px-3 py-1 rounded-lg uppercase transition-all ${
@@ -156,7 +164,7 @@ export default function DuaCard({ post, currentUser, onRefresh, isMine }) {
                   >
                     {person.is_thanked ? "Amin Sent" : "Say Amin"}
                   </button>
-                ) :null}
+                )}
               </div>
             ))}
           </div>

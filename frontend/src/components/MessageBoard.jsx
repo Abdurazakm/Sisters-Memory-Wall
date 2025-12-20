@@ -2,11 +2,12 @@ import React, { useEffect, useRef, useState, useCallback, memo } from "react";
 import { io } from "socket.io-client";
 import EmojiPicker from "emoji-picker-react";
 import {
-  FiSmile, FiPaperclip, FiMic, FiSend, FiEdit2, FiTrash2, FiCheck, FiX,
-  FiArrowLeft, FiImage, FiVideo, FiFileText, FiHeadphones, FiDownload,
-  FiPlay, FiPause, FiMoreVertical, FiCornerUpLeft,
+  FiSmile, FiPaperclip, FiMic, FiSend, FiEdit2, FiTrash2,
+  FiCheck, FiX, FiArrowLeft, FiImage, FiVideo, FiFileText,
+  FiHeadphones, FiDownload, FiPlay, FiPause, FiMoreVertical,
+  FiCornerUpLeft,
 } from "react-icons/fi";
-import { getMessages, addMessage } from "../api";
+import { getMessages, addMessage, markRead } from "../api"; // Ensure markRead is imported
 import { useNavigate } from "react-router-dom";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
@@ -63,6 +64,7 @@ const AudioPlayer = memo(({ src, isMine }) => {
   };
 
   const formatTime = (seconds) => {
+    if (isNaN(seconds)) return "0:00";
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
@@ -77,8 +79,8 @@ const AudioPlayer = memo(({ src, isMine }) => {
         </button>
         <div className="flex-1 min-w-0">
           <div className="flex justify-between text-[10px] sm:text-xs mb-1">
-            <span className="font-medium truncate">Voice Note</span>
-            <span className="shrink-0">{formatTime(currentTime)} / {formatTime(duration)}</span>
+            <span className="font-medium truncate text-gray-700">Voice Note</span>
+            <span className="shrink-0 text-gray-500">{formatTime(currentTime)} / {formatTime(duration)}</span>
           </div>
           <div className="h-1 bg-gray-300 rounded-full relative">
             <div className={`absolute h-full rounded-full ${isMine ? "bg-purple-500" : "bg-gray-600"}`} style={{ width: `${(currentTime / duration) * 100 || 0}%` }} />
@@ -90,8 +92,13 @@ const AudioPlayer = memo(({ src, isMine }) => {
 });
 
 const MessageItem = memo(({ message, isMine, editingId, setEditingId, setEditText, editText, onSave, onDelete, renderFile, setReplyTo, onReplyClick }) => {
-  const letter = message.author?.[0]?.toUpperCase();
+  if (!message || !message.author) return null;
+  const letter = message.author[0].toUpperCase();
   const isEditing = editingId === message.id;
+  
+  // UNREAD LOGIC: If not mine and is_read is false
+  const isUnread = !isMine && message.is_read === false;
+
   const [openMenu, setOpenMenu] = useState(false);
   const menuRef = useRef(null);
 
@@ -101,57 +108,46 @@ const MessageItem = memo(({ message, isMine, editingId, setEditingId, setEditTex
     return () => document.removeEventListener("mousedown", closeMenu);
   }, []);
 
-  // Determine the ID to navigate to
-  const targetReplyId = message.replyTo?.id || (typeof message.replyTo !== 'object' ? message.replyTo : null);
+  const targetReplyId = message.replyTo?.id || (typeof message.replyTo !== "object" ? message.replyTo : null);
 
   return (
-    <div id={`msg-${message.id}`} className={`flex gap-2 w-full transition-all duration-300 ${isMine ? "justify-end" : "justify-start"}`}>
+    <div id={`msg-${message.id}`} className={`flex gap-2 w-full transition-all duration-300 ${isMine ? "justify-end" : "justify-start"} ${isUnread ? "animate-unread-pulse" : ""}`}>
       {!isMine && <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-purple-400 text-white flex items-center justify-center font-bold shrink-0 text-sm">{letter}</div>}
+      
+      <div className={`relative max-w-[88%] sm:max-w-[70%] p-3 rounded-2xl shadow break-words transition-all
+        ${isMine ? "bg-purple-600 text-white rounded-br-none" : "bg-white text-gray-900 rounded-bl-none"}
+        ${isUnread ? "ring-2 ring-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.4)]" : "border border-transparent"}`}>
+        
+        {isUnread && (
+          <span className="absolute -top-2 -left-1 bg-purple-500 text-[8px] text-white px-1.5 py-0.5 rounded-full font-black tracking-tighter uppercase shadow-sm">New</span>
+        )}
 
-      <div className={`relative max-w-[88%] sm:max-w-[70%] p-3 rounded-2xl shadow break-words ${isMine ? "bg-purple-500 text-white rounded-br-none" : "bg-white text-gray-900 rounded-bl-none"}`}>
         {!isEditing && (
           <div className="absolute top-1 right-1" ref={menuRef}>
-            <button onClick={() => setOpenMenu((p) => !p)} className={`p-1 rounded-full hover:bg-black/10 ${isMine ? "text-white" : "text-gray-400"}`}>
-              <FiMoreVertical size={14} />
-            </button>
+            <button onClick={() => setOpenMenu((p) => !p)} className={`p-1 rounded-full hover:bg-black/10 ${isMine ? "text-white" : "text-gray-400"}`}><FiMoreVertical size={14} /></button>
             {openMenu && (
               <div className="absolute right-0 mt-1 w-32 bg-white text-gray-800 rounded-lg shadow-lg z-30 overflow-hidden border text-sm">
-                <button onClick={() => { setReplyTo({ id: message.id, author: message.author, text: message.text, file_name: message.file_name }); setOpenMenu(false); }} className="w-full px-3 py-2 hover:bg-gray-100 flex items-center gap-2 border-b">
-                  <FiCornerUpLeft size={14} /> Reply
-                </button>
+                <button onClick={() => { setReplyTo({ id: message.id, author: message.author, text: message.text, file_name: message.file_name }); setOpenMenu(false); }} className="w-full px-3 py-2 hover:bg-gray-100 flex items-center gap-2 border-b"><FiCornerUpLeft size={14} /> Reply</button>
                 {isMine && (
                   <>
-                    <button onClick={() => { setEditingId(message.id); setEditText(message.text || ""); setOpenMenu(false); }} className="w-full px-3 py-2 hover:bg-gray-100 flex items-center gap-2 border-b">
-                      <FiEdit2 size={14} /> Edit
-                    </button>
-                    <button onClick={() => { setOpenMenu(false); onDelete(message.id); }} className="w-full px-3 py-2 hover:bg-red-50 text-red-600 flex items-center gap-2">
-                      <FiTrash2 size={14} /> Delete
-                    </button>
+                    <button onClick={() => { setEditingId(message.id); setEditText(message.text || ""); setOpenMenu(false); }} className="w-full px-3 py-2 hover:bg-gray-100 flex items-center gap-2 border-b"><FiEdit2 size={14} /> Edit</button>
+                    <button onClick={() => { setOpenMenu(false); onDelete(message.id); }} className="w-full px-3 py-2 hover:bg-red-50 text-red-600 flex items-center gap-2"><FiTrash2 size={14} /> Delete</button>
                   </>
                 )}
               </div>
             )}
           </div>
         )}
-
         {!isMine && <p className="text-[10px] font-bold opacity-80 mb-1">{message.author}</p>}
-
         {message.replyTo && (
-          <div 
-            onClick={() => targetReplyId && onReplyClick(targetReplyId)}
-            className={`mb-2 p-2 rounded border-l-4 text-[11px] cursor-pointer hover:bg-black/5 transition-colors ${isMine ? "bg-white/20 border-white/60" : "bg-gray-100 border-purple-500"}`}
-          >
+          <div onClick={() => targetReplyId && onReplyClick(targetReplyId)} className={`mb-2 p-2 rounded border-l-4 text-[11px] cursor-pointer hover:bg-black/5 transition-colors ${isMine ? "bg-white/20 border-white/60" : "bg-gray-100 border-purple-500"}`}>
             <p className="font-semibold opacity-80">{message.replyTo.author || "User"}</p>
-            <p className="truncate opacity-80 italic">
-              {/* Intelligent display: Text > File Name > Fallback */}
-              {message.replyTo.text || message.replyTo.file_name || (message.replyTo.file_url ? "Attachment" : "Original message")}
-            </p>
+            <p className="truncate opacity-80 italic">{message.replyTo.text || message.replyTo.file_name || "Attachment"}</p>
           </div>
         )}
-
         {isEditing ? (
           <div className="flex gap-1 items-center">
-            <input value={editText} onChange={(e) => setEditText(e.target.value)} className="flex-1 px-2 py-1 rounded border text-gray-900 text-sm w-full" autoFocus />
+            <input value={editText} onChange={(e) => setEditText(e.target.value)} className="flex-1 px-2 py-1 rounded border text-gray-900 text-sm w-full" autoFocus onKeyDown={(e) => { if (e.key === "Enter") onSave(message.id); if (e.key === "Escape") setEditingId(null); }} />
             <button onClick={() => onSave(message.id)} className="text-green-400 shrink-0"><FiCheck size={18} /></button>
             <button onClick={() => setEditingId(null)} className="text-gray-300 shrink-0"><FiX size={18} /></button>
           </div>
@@ -161,15 +157,11 @@ const MessageItem = memo(({ message, isMine, editingId, setEditingId, setEditTex
             {message.file_url && renderFile(message)}
           </>
         )}
-
         <p className={`text-[9px] opacity-70 mt-1 ${isMine ? "text-right" : "text-left"}`}>
           {new Date(message.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </p>
       </div>
-
-      {isMine && <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-purple-600 text-white flex items-center justify-center font-bold shrink-0 text-sm">{letter}</div>}
-      
-      <style>{`.message-highlight { animation: highlight-fade 2s ease-in-out; } @keyframes highlight-fade { 0% { background-color: rgba(168, 85, 247, 0.3); } 100% { background-color: transparent; } }`}</style>
+      {isMine && <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-purple-700 text-white flex items-center justify-center font-bold shrink-0 text-sm">{letter}</div>}
     </div>
   );
 });
@@ -184,6 +176,7 @@ export default function MessageBoard() {
   const [editText, setEditText] = useState("");
   const [uploadProgress, setUploadProgress] = useState(null);
   const [replyTo, setReplyTo] = useState(null);
+  const [isSending, setIsSending] = useState(false);
 
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -196,50 +189,51 @@ export default function MessageBoard() {
   const username = localStorage.getItem("username") || "User";
   const navigate = useNavigate();
 
+  // 1. Load Messages and immediately mark them as read
+  useEffect(() => {
+    getMessages().then((data) => {
+      if (data) setMessages(data.sort((a, b) => new Date(a.time) - new Date(b.time)));
+      markAsRead();
+    });
+  }, []);
+
+  const markAsRead = async () => {
+    try {
+      await markRead('chat');
+    } catch (err) { console.error("Mark read error:", err); }
+  };
+
   useEffect(() => {
     if (!token) return;
-    socketRef.current = io(BACKEND_URL, { auth: { token }, transports: ["websocket"] });
+    const socket = io(BACKEND_URL, { auth: { token }, transports: ["websocket"], reconnection: true });
+    socketRef.current = socket;
 
-    socketRef.current.on("newMessage", (msg) => { 
-      // If the incoming message is from someone else, process it
+    socket.on("newMessage", (msg) => {
+      if (!msg || !msg.id) return;
       if (msg.author !== username) {
         setMessages((prev) => {
-          // If message is a reply, we must "Hydrate" it with text from our local history
-          if (msg.replyTo) {
-            const originalId = msg.replyTo.id || msg.replyTo;
-            const originalMsg = prev.find(m => m.id === originalId);
-            
-            if (originalMsg) {
-              msg.replyTo = {
-                id: originalMsg.id,
-                author: originalMsg.author,
-                text: originalMsg.text,
-                file_name: originalMsg.file_name,
-                file_url: originalMsg.file_url
-              };
-            }
-          }
-          return [...prev, msg];
+          if (prev.find((m) => m.id === msg.id)) return prev;
+          return [...prev, msg].sort((a, b) => new Date(a.time) - new Date(b.time));
         });
+        // If we are actively in the chat, mark this incoming message as read
+        markAsRead();
       }
     });
 
-    socketRef.current.on("updateMessage", (updated) => setMessages((p) => p.map((m) => (m.id === updated.id ? updated : m))));
-    socketRef.current.on("deleteMessage", ({ id }) => setMessages((p) => p.filter((m) => m.id !== id)));
-    return () => socketRef.current.disconnect();
+    socket.on("updateMessage", (updated) => {
+      if (updated) setMessages((p) => p.map((m) => (m.id === updated.id ? updated : m)));
+    });
+
+    socket.on("deleteMessage", (data) => {
+      if (data?.id) setMessages((p) => p.filter((m) => m.id !== data.id));
+    });
+
+    return () => { if (socketRef.current) socketRef.current.disconnect(); };
   }, [token, username]);
 
   useEffect(() => {
-    getMessages().then((data) => setMessages((data || []).sort((a, b) => new Date(a.time) - new Date(b.time))));
-  }, []);
-
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
-
-  useEffect(() => {
-    const closePicker = (e) => { if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target)) setShowEmoji(false); };
-    document.addEventListener("mousedown", closePicker);
-    return () => document.removeEventListener("mousedown", closePicker);
-  }, []);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const scrollToMessage = useCallback((msgId) => {
     const target = document.getElementById(`msg-${msgId}`);
@@ -251,21 +245,20 @@ export default function MessageBoard() {
   }, []);
 
   const sendMessage = async () => {
-    if (!text.trim() && !replyTo) return;
+    if ((!text.trim() && !replyTo) || isSending) return;
+    setIsSending(true);
     const currentReplyData = replyTo;
-    
-    // We send only the ID to the server
     const payload = { text: text.trim(), replyTo: currentReplyData ? currentReplyData.id : null };
-    
+
     try {
       const saved = await addMessage(payload);
       if (saved) {
-        // We update our local state with the full reply metadata immediately
         setMessages((prev) => [...prev, { ...saved, replyTo: currentReplyData }]);
         setText("");
         setReplyTo(null);
       }
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error("Send Error:", err); } 
+    finally { setIsSending(false); }
   };
 
   const sendFile = useCallback(async (file) => {
@@ -278,15 +271,16 @@ export default function MessageBoard() {
 
     setUploadProgress({ fileName: file.name, progress: 0 });
     const xhr = new XMLHttpRequest();
-    xhr.upload.onprogress = (e) => { if (e.lengthComputable) setUploadProgress((p) => ({ ...p, progress: Math.round((e.loaded / e.total) * 100) })); };
-    xhr.onload = () => { 
-      if (xhr.status === 200) {
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) setUploadProgress((p) => ({ ...p, progress: Math.round((e.loaded / e.total) * 100) }));
+    };
+    xhr.onload = () => {
+      if (xhr.status === 200 || xhr.status === 201) {
         const saved = JSON.parse(xhr.responseText);
-        // Add full replyTo object so it shows correctly on current user's screen
-        setMessages((p) => [...p, { ...saved, replyTo: replyTo }]); 
+        setMessages((p) => [...p, { ...saved, replyTo: replyTo }]);
         setReplyTo(null);
-      } 
-      setUploadProgress(null); 
+      } else { alert("Upload failed"); }
+      setUploadProgress(null);
     };
     xhr.open("POST", `${BACKEND_URL}/api/messages`);
     xhr.setRequestHeader("Authorization", `Bearer ${token}`);
@@ -313,25 +307,32 @@ export default function MessageBoard() {
   const stopRecording = () => { if (mediaRecorderRef.current?.state !== "inactive") { mediaRecorderRef.current.stop(); setRecording(false); } };
 
   const saveEdit = useCallback(async (id) => {
-    const res = await fetch(`${BACKEND_URL}/api/messages/${id}`, {
-      method: "PUT",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ text: editText }),
-    });
-    const updated = await res.json();
-    setMessages((p) => p.map((m) => (m.id === id ? updated : m)));
-    setEditingId(null);
+    if (!editText.trim()) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/messages/${id}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ text: editText }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setMessages((p) => p.map((m) => (m.id === id ? updated : m)));
+        setEditingId(null);
+      }
+    } catch (err) { console.error(err); }
   }, [token, editText]);
 
   const deleteMsg = useCallback(async (id) => {
     if (!window.confirm("Delete message?")) return;
-    await fetch(`${BACKEND_URL}/api/messages/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
-    setMessages((p) => p.filter((m) => m.id !== id));
+    try {
+      await fetch(`${BACKEND_URL}/api/messages/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      setMessages((p) => p.filter((m) => m.id !== id));
+    } catch (err) { console.error(err); }
   }, [token]);
 
   const renderFileContent = useCallback((m) => {
     const type = getFileType(m.file_type, m.file_name);
-    const url = `${BACKEND_URL}${m.file_url}`;
+    const url = m.file_url.startsWith("http") ? m.file_url : `${BACKEND_URL}${m.file_url}`;
     if (type === "image") return <img src={url} alt="upload" className="mt-2 rounded border max-h-48 sm:max-h-60 w-full object-cover cursor-pointer" onClick={() => window.open(url)} />;
     if (type === "video") return <video controls src={url} className="mt-2 rounded border max-h-48 sm:max-h-60 w-full" />;
     if (type === "audio") return <AudioPlayer src={url} isMine={m.author === username} />;
@@ -352,13 +353,19 @@ export default function MessageBoard() {
 
       <div className="flex-1 overflow-y-auto p-2 sm:p-4">
         <div className="max-w-3xl mx-auto flex flex-col gap-3">
-          {messages.map((m) => (
-            <MessageItem 
-              key={m.id} message={m} isMine={m.author === username} 
-              editingId={editingId} setEditingId={setEditingId} 
-              setEditText={setEditText} editText={editText} 
-              onSave={saveEdit} onDelete={deleteMsg} 
-              renderFile={renderFileContent} setReplyTo={setReplyTo} 
+          {messages.map((m, index) => (
+            <MessageItem
+              key={m.id ? `msg-${m.id}` : `temp-${index}-${m.time}`}
+              message={m}
+              isMine={m.author === username}
+              editingId={editingId}
+              setEditingId={setEditingId}
+              setEditText={setEditText}
+              editText={editText}
+              onSave={saveEdit}
+              onDelete={deleteMsg}
+              renderFile={renderFileContent}
+              setReplyTo={setReplyTo}
               onReplyClick={scrollToMessage}
             />
           ))}
@@ -366,61 +373,61 @@ export default function MessageBoard() {
         </div>
       </div>
 
-      <footer className="bg-white border-t relative shrink-0" ref={emojiPickerRef}>
+      {uploadProgress && (
+        <div className="bg-white px-4 py-2 border-t flex items-center gap-3">
+          <div className="text-xs font-bold text-purple-600 animate-pulse">Uploading...</div>
+          <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+            <div className="h-full bg-purple-500 transition-all" style={{ width: `${uploadProgress.progress}%` }} />
+          </div>
+          <div className="text-[10px] text-gray-400">{uploadProgress.progress}%</div>
+        </div>
+      )}
+
+      <footer className="bg-white border-t relative shrink-0">
         {replyTo && (
           <div className="absolute bottom-full left-0 w-full bg-purple-50 border-l-4 border-purple-500 px-4 py-2 text-xs flex justify-between items-center shadow-inner">
             <div className="min-w-0 pr-4">
               <p className="font-bold text-purple-600 truncate">Replying to {replyTo.author}</p>
-              <p className="text-gray-600 truncate italic">
-                {replyTo.text || replyTo.file_name || (replyTo.file_url ? "Attachment" : "Original message")}
-              </p>
+              <p className="text-gray-600 truncate italic">{replyTo.text || replyTo.file_name || "Original message"}</p>
             </div>
             <button onClick={() => setReplyTo(null)} className="text-gray-400 hover:text-gray-600 shrink-0"><FiX size={18} /></button>
           </div>
         )}
-
         <div className="p-2 sm:p-3 flex items-end gap-1 sm:gap-2 max-w-4xl mx-auto">
           <div className="flex items-center gap-0.5 sm:gap-1 mb-1 shrink-0">
             <button onClick={() => setShowEmoji(!showEmoji)} className="p-2 text-gray-500 hover:text-purple-600 transition-colors"><FiSmile size={20} /></button>
-            <input type="file" hidden ref={fileInputRef} onChange={(e) => e.target.files[0] && sendFile(e.target.files[0])} />
+            <input type="file" hidden ref={fileInputRef} onChange={(e) => { if (e.target.files[0]) sendFile(e.target.files[0]); e.target.value = null; }} />
             <button onClick={() => fileInputRef.current.click()} className="p-2 text-gray-500 hover:text-purple-600 transition-colors"><FiPaperclip size={20} /></button>
           </div>
-
           <div className="flex-1 relative flex items-center min-w-0">
-            <textarea
-              rows="1"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-              placeholder="Message..."
-              className="w-full bg-gray-100 border-none rounded-2xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 resize-none max-h-32"
-              style={{ overflow: 'auto' }}
-            />
+            <textarea rows="1" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }} placeholder="Message..." className="w-full bg-gray-100 border-none rounded-2xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 resize-none max-h-32" />
           </div>
-
           <div className="flex items-center gap-1 mb-1 shrink-0">
             <button onClick={recording ? stopRecording : startRecording} className={`p-2 rounded-full transition-all ${recording ? "bg-red-50 text-red-500 animate-pulse" : "text-gray-500 hover:text-purple-600"}`}><FiMic size={20} /></button>
-            <button 
-              onClick={sendMessage} 
-              disabled={!text.trim() && !replyTo} 
-              className={`p-2.5 rounded-full transition-all shrink-0 ${(text.trim() || replyTo) ? "bg-purple-600 text-white shadow-md active:scale-95" : "bg-gray-200 text-gray-400 cursor-not-allowed"}`}
-            >
-              <FiSend size={18} />
+            <button onClick={sendMessage} disabled={(!text.trim() && !replyTo) || isSending} className={`p-2.5 rounded-full transition-all shrink-0 ${text.trim() || replyTo ? "bg-purple-600 text-white shadow-md active:scale-95" : "bg-gray-200 text-gray-400 cursor-not-allowed"}`}>
+              {isSending ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <FiSend size={18} />}
             </button>
           </div>
         </div>
-
         {showEmoji && (
           <div className="absolute bottom-full mb-2 left-0 z-50 w-full sm:w-auto">
-            <EmojiPicker 
-              onEmojiClick={(e) => setText((p) => p + e.emoji)} 
-              width="100%" 
-              height={350} 
-              previewConfig={{ showPreview: false }}
-            />
+            <EmojiPicker onEmojiClick={(e) => setText((p) => p + e.emoji)} width="100%" height={350} previewConfig={{ showPreview: false }} />
           </div>
         )}
       </footer>
+      <style>{`
+        .message-highlight { animation: highlight-fade 2s ease-in-out; } 
+        @keyframes highlight-fade { 0% { background-color: rgba(168, 85, 247, 0.3); } 100% { background-color: transparent; } }
+        
+        @keyframes unread-glow {
+          0% { box-shadow: 0 0 5px rgba(168, 85, 247, 0.2); }
+          50% { box-shadow: 0 0 15px rgba(168, 85, 247, 0.5); }
+          100% { box-shadow: 0 0 5px rgba(168, 85, 247, 0.2); }
+        }
+        .animate-unread-pulse {
+          animation: unread-glow 2s infinite ease-in-out;
+        }
+      `}</style>
     </section>
   );
 }

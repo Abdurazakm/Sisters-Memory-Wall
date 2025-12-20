@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { FiHome, FiMessageCircle, FiMessageSquare, FiUser, FiSettings } from "react-icons/fi";
 import { getUnreadCounts, markMessagesAsRead } from "../api"; 
+import io from "socket.io-client";
 
 function NavItem({ to, icon: Icon, label, active, badgeCount }) {
   return (
@@ -24,16 +25,22 @@ function NavItem({ to, icon: Icon, label, active, badgeCount }) {
 export default function BottomNav() {
   const location = useLocation();
   const currentPath = location.pathname;
+  const username = localStorage.getItem("username");
 
   const [unreadChat, setUnreadChat] = useState(0);
   const [unreadFeed, setUnreadFeed] = useState(0);
+  
+  // Ref to track if we just marked something as read to prevent "ghost" notifications
+  const justMarkedRead = useRef({ chat: false, feed: false });
 
   const fetchCounts = async () => {
     if (!navigator.onLine) return; 
     try {
       const data = await getUnreadCounts();
-      setUnreadChat(data.unreadChat);
-      setUnreadFeed(data.unreadFeed);
+      
+      // Only update state if we haven't JUST cleared it manually
+      if (!justMarkedRead.current.chat) setUnreadChat(data.unreadChat);
+      if (!justMarkedRead.current.feed) setUnreadFeed(data.unreadFeed);
     } catch (err) {
       console.warn("Notification poll failed");
     }
@@ -41,36 +48,59 @@ export default function BottomNav() {
 
   useEffect(() => {
     fetchCounts();
-    const interval = setInterval(fetchCounts, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    const socket = io("http://localhost:4000", {
+      auth: { token: localStorage.getItem("token") }
+    });
 
+    socket.on("newMessage", (msg) => {
+      if (currentPath !== "/messages" && msg.author !== username) {
+        setUnreadChat(prev => prev + 1);
+      }
+    });
+
+    socket.on("newPost", (post) => {
+      if (currentPath !== "/feed" && post.author !== username) {
+        setUnreadFeed(prev => prev + 1);
+      }
+    });
+
+    const interval = setInterval(fetchCounts, 15000); // 15s interval
+
+    return () => {
+      socket.disconnect();
+      clearInterval(interval);
+    };
+  }, [currentPath, username]);
+
+  // Handle Marking as Read
   useEffect(() => {
-    const syncReadStatus = async () => {
-      // HANDLE CHAT NOTIFICATIONS
+    const markAsRead = async () => {
       if (currentPath === "/messages" && unreadChat > 0) {
-        const prevChat = unreadChat;
-        setUnreadChat(0); // Optimistic clear
+        justMarkedRead.current.chat = true;
+        setUnreadChat(0);
         try {
           await markMessagesAsRead('chat');
+          // Wait 3 seconds before allowing API updates to overwrite the 0
+          setTimeout(() => { justMarkedRead.current.chat = false; }, 3000);
         } catch (err) {
-          setUnreadChat(prevChat); // Revert if failed
+          justMarkedRead.current.chat = false;
         }
       }
 
-      // HANDLE FEED NOTIFICATIONS
       if (currentPath === "/feed" && unreadFeed > 0) {
-        const prevFeed = unreadFeed;
-        setUnreadFeed(0); // Optimistic clear
+        justMarkedRead.current.feed = true;
+        setUnreadFeed(0);
         try {
           await markMessagesAsRead('feed');
+          // Wait 3 seconds before allowing API updates to overwrite the 0
+          setTimeout(() => { justMarkedRead.current.feed = false; }, 3000);
         } catch (err) {
-          setUnreadFeed(prevFeed); // Revert if failed
+          justMarkedRead.current.feed = false;
         }
       }
     };
 
-    syncReadStatus();
+    markAsRead();
   }, [currentPath, unreadChat, unreadFeed]);
 
   return (

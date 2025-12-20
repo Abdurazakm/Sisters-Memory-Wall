@@ -7,9 +7,7 @@ import {
 } from "react-icons/fi";
 import DuaCard from "../components/DuaCard";
 import PostCard from "../components/PostCard";
-import BottomNav from "../components/BottomNav"; // Import BottomNav
-
-const BACKEND_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+import BottomNav from "../components/BottomNav";
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -30,6 +28,7 @@ export default function ProfilePage() {
     loadProfileData();
   }, [urlUsername]);
 
+  /* ================== LOAD DATA ================== */
   const loadProfileData = async () => {
     setLoading(true);
     try {
@@ -37,15 +36,28 @@ export default function ProfilePage() {
       setBio(profile.bio || ""); 
       
       const historyArr = [];
+
+      // Helper to handle Supabase vs Local URLs
+      const formatUrl = (url) => {
+        if (!url) return null;
+        if (url.startsWith('http')) return url; // Full Supabase URL
+        return `${import.meta.env.VITE_API_URL || "http://localhost:4000"}${url}`;
+      };
+
+      // 1. Set current photo
       if (profile.profile_photo) {
-        historyArr.push(`${BACKEND_URL}${profile.profile_photo}`);
+        historyArr.push(formatUrl(profile.profile_photo));
       } else {
         historyArr.push(`https://ui-avatars.com/api/?name=${targetUser}&background=random`);
       }
 
+      // 2. Add historical photos
       if (profile.history && profile.history.length > 0) {
         profile.history.forEach(h => {
-          historyArr.push(`${BACKEND_URL}${h.photo_url}`);
+          const formatted = formatUrl(h.photo_url);
+          if (formatted && !historyArr.includes(formatted)) {
+            historyArr.push(formatted);
+          }
         });
       }
       setPhotoHistory(historyArr);
@@ -60,6 +72,7 @@ export default function ProfilePage() {
     }
   };
 
+  /* ================== UPLOAD PHOTO ================== */
   const handlePhotoUpload = async (e) => {
     if (!isOwnProfile) return;
     const file = e.target.files[0];
@@ -71,8 +84,8 @@ export default function ProfilePage() {
 
     try {
       await updateProfilePhoto(formData);
-      await loadProfileData();
-      setCurrentPhotoIdx(0); 
+      await loadProfileData(); // Refresh photos after upload
+      setCurrentPhotoIdx(0);   // Show the newest photo
     } catch (err) {
       console.error(err);
       alert("Failed to upload photo.");
@@ -93,10 +106,9 @@ export default function ProfilePage() {
   }
 
   return (
-    /* Added pb-32 to create space for BottomNav */
     <div className="min-h-screen bg-gray-50 pb-32">
       
-      {/* --- TOP HEADER NAVIGATION --- */}
+      {/* --- TOP HEADER --- */}
       <div className="bg-white border-b sticky top-0 z-30 px-4 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-500 hover:text-purple-600 font-bold transition-colors">
@@ -112,7 +124,7 @@ export default function ProfilePage() {
       <div className="max-w-4xl mx-auto p-4 mt-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           
-          {/* --- LEFT COLUMN: IDENTITY & PHOTO HISTORY --- */}
+          {/* --- LEFT COLUMN: PROFILE CARD --- */}
           <div className="space-y-6">
             <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-purple-100 text-center relative overflow-hidden">
               <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-500 to-indigo-500"></div>
@@ -133,8 +145,8 @@ export default function ProfilePage() {
                 
                 {isOwnProfile && (
                     <label className="absolute bottom-2 right-2 bg-purple-600 p-3 rounded-2xl text-white shadow-lg cursor-pointer hover:scale-110 active:scale-95 transition-all z-20">
-                    <FiCamera size={20} />
-                    <input type="file" hidden onChange={handlePhotoUpload} accept="image/*" disabled={uploading} />
+                      <FiCamera size={20} />
+                      <input type="file" hidden onChange={handlePhotoUpload} accept="image/*" disabled={uploading} />
                     </label>
                 )}
 
@@ -172,6 +184,7 @@ export default function ProfilePage() {
               )}
             </div>
 
+            {/* --- JOURNEY / PHOTO HISTORY --- */}
             <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
               <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
                 <FiClock /> Journey
@@ -190,7 +203,7 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* --- RIGHT COLUMN: USER FEED --- */}
+          {/* --- RIGHT COLUMN: CONTRIBUTIONS --- */}
           <div className="md:col-span-2 space-y-6">
             <div className="flex items-center justify-between px-2">
               <h2 className="text-xl font-black text-gray-800 flex items-center gap-3">
@@ -233,8 +246,6 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
-
-      {/* REUSABLE BOTTOM NAV */}
       <BottomNav />
     </div>
   );

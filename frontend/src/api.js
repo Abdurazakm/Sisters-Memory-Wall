@@ -22,10 +22,6 @@ export const login = async (data) => {
 };
 
 /* ---------------- PROFILE & SETTINGS ---------------- */
-
-/**
- * Fetches user profile data, including photo history and bio.
- */
 export const getUserProfile = async (username) => {
   try {
     const res = await api.get(`/api/profile/${username}`);
@@ -36,9 +32,6 @@ export const getUserProfile = async (username) => {
   }
 };
 
-/**
- * Uploads a new profile photo.
- */
 export const updateProfilePhoto = async (formData) => {
   const res = await api.post("/api/profile/photo", formData, {
     headers: { "Content-Type": "multipart/form-data" },
@@ -46,9 +39,6 @@ export const updateProfilePhoto = async (formData) => {
   return res.data;
 };
 
-/**
- * Updates username, password, or bio.
- */
 export const updateUserSettings = async (settingsData) => {
   const res = await api.put("/api/profile/settings", settingsData);
   return res.data;
@@ -56,21 +46,22 @@ export const updateUserSettings = async (settingsData) => {
 
 /* ---------------- NOTIFICATIONS & BADGES ---------------- */
 
-/**
- * Fetches unread counts for chat and feed notifications.
- */
 export const getUnreadCounts = async () => {
   const res = await api.get("/api/unread-counts");
   return res.data;
 };
 
 /**
- * Tells the server to mark all unread messages as seen.
+ * Marks messages as read. 
+ * Exported as both 'markMessagesAsRead' (for BottomNav) 
+ * and 'markRead' (for MessageBoard).
  */
-export const markMessagesAsRead = async () => {
-  const res = await api.post("/api/mark-read");
+export const markMessagesAsRead = async (type) => {
+  const res = await api.post("/api/mark-read", { type });
   return res.data;
 };
+
+export const markRead = markMessagesAsRead; // Alias for MessageBoard compatibility
 
 /* ---------------- CHAT MESSAGES ---------------- */
 export const getMessages = async () => {
@@ -78,9 +69,16 @@ export const getMessages = async () => {
   return res.data;
 };
 
-export const addMessage = async (formData) => {
-  const res = await api.post("/api/messages", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
+/**
+ * Enhanced addMessage: Automatically detects if payload is 
+ * FormData (files) or a plain Object (text)
+ */
+export const addMessage = async (payload) => {
+  const isFormData = payload instanceof FormData;
+  const res = await api.post("/api/messages", payload, {
+    headers: { 
+      "Content-Type": isFormData ? "multipart/form-data" : "application/json" 
+    },
   });
   return res.data;
 };
@@ -99,9 +97,8 @@ export const createPost = async (formData) => {
 };
 
 /* ---------------- DUA SPECIFIC ---------------- */
-
-export const confirmDua = async (id) => {
-  const res = await api.post(`/api/dua/confirm/${id}`);
+export const confirmDua = async (postId) => {
+  const res = await api.post(`/api/dua/confirm/${postId}`);
   return res.data;
 };
 
@@ -111,7 +108,6 @@ export const sayAminToDua = async (confirmationId) => {
 };
 
 /* ---------------- EDIT / DELETE ---------------- */
-
 export const updatePost = async (id, text) => {
   const res = await api.put(`/api/posts/${id}`, { text });
   return res.data;

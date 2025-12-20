@@ -1,13 +1,12 @@
 const express = require("express");
 const http = require("http");
 const cors = require("cors");
-const mysql = require("mysql2/promise");
+const { createClient } = require("@supabase/supabase-js");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const socketIo = require("socket.io");
 const multer = require("multer");
 const path = require("path");
-const fs = require("fs");
 require("dotenv").config();
 
 const app = express();
@@ -15,125 +14,42 @@ const server = http.createServer(app);
 const io = socketIo(server, {
   cors: { 
     origin: "http://localhost:5173",
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true
   },
 });
 
+// Initialize Supabase
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+
 app.use(cors({ origin: "http://localhost:5173", credentials: true }));
 app.use(express.json());
-app.use("/uploads", express.static("uploads"));
 
 const ALLOWED_USERS = ["Abdurazaqm", "Semira", "ZebibaS", "Hawlet", "ZebibaM"];
-let db;
-
-if (!fs.existsSync("uploads")) {
-  fs.mkdirSync("uploads", { recursive: true });
-}
 
 /* ================== MULTER CONFIG ================== */
-const storage = multer.diskStorage({
-  destination: (_, __, cb) => cb(null, "uploads"),
-  filename: (_, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  },
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage, 
+  limits: { fileSize: 50 * 1024 * 1024 } 
 });
 
-const upload = multer({
-  storage,
-  limits: { fileSize: 50 * 1024 * 1024 },
-});
-
-/* ================== DB & TABLES ================== */
-async function connectDB() {
-  const temp = await mysql.createConnection({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-  });
-
-  await temp.execute(`CREATE DATABASE IF NOT EXISTS ${process.env.DB_NAME}`);
-  await temp.end();
-
-  db = await mysql.createConnection({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-  });
-
-  // Users (Updated with last_feed_check)
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INT AUTO_INCREMENT PRIMARY KEY, 
-      username VARCHAR(100) UNIQUE NOT NULL, 
-      password VARCHAR(255) NOT NULL,
-      profile_photo VARCHAR(500) DEFAULT NULL,
-      bio TEXT DEFAULT NULL,
-      last_feed_check DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  // Profile Photo History
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS profile_photos (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      username VARCHAR(100),
-      photo_url VARCHAR(500),
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  // Chat Messages
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS messages (
-      id INT AUTO_INCREMENT PRIMARY KEY, 
-      author VARCHAR(100), 
-      text TEXT, 
-      file_url VARCHAR(500), 
-      file_type VARCHAR(100), 
-      file_name VARCHAR(255), 
-      file_size INT, 
-      reply_to INT NULL, 
-      is_read BOOLEAN DEFAULT FALSE, 
-      time DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  // Feed Posts
-  await db.execute(`CREATE TABLE IF NOT EXISTS posts (id INT AUTO_INCREMENT PRIMARY KEY, author VARCHAR(100), text TEXT, type ENUM('post', 'dua') DEFAULT 'post', time DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-
-  // Dua Confirmations
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS dua_confirmations (
-      id INT AUTO_INCREMENT PRIMARY KEY, 
-      dua_id INT, 
-      user_id VARCHAR(100), 
-      is_thanked BOOLEAN DEFAULT FALSE,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
-      UNIQUE KEY unique_dua_user (dua_id, user_id), 
-      FOREIGN KEY (dua_id) REFERENCES posts(id) ON DELETE CASCADE
-    )
-  `);
-
-  // Multiple Files for Posts
-  await db.execute(`CREATE TABLE IF NOT EXISTS post_files (id INT AUTO_INCREMENT PRIMARY KEY, post_id INT, file_url VARCHAR(500), file_type VARCHAR(100), file_name VARCHAR(255), FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE)`);
-
-  // Comments
-  await db.execute(`CREATE TABLE IF NOT EXISTS comments (id INT AUTO_INCREMENT PRIMARY KEY, post_id INT, author VARCHAR(100), text TEXT, reply_to INT NULL, time DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE)`);
-
-  console.log("✅ Database System Ready with Feed Tracking");
-  await seedUsers();
-}
-
-async function seedUsers() {
-  const defaultPassword = "123456";
-  for (const username of ALLOWED_USERS) {
-    try {
-      const hash = await bcrypt.hash(defaultPassword, 10);
-      await db.execute("INSERT IGNORE INTO users (username, password) VALUES (?, ?)", [username, hash]);
-    } catch (err) { console.error("Error seeding user:", username, err); }
+/* ================== STORAGE HELPER ================== */
+async function uploadToSupabase(file) {
+  try {
+    const fileName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`;
+    const { data, error } = await supabase.storage
+      .from('uploads')
+      .upload(fileName, file.buffer, { 
+        contentType: file.mimetype, 
+        upsert: false 
+      });
+    if (error) throw error;
+    const { data: { publicUrl } } = supabase.storage.from('uploads').getPublicUrl(fileName);
+    return publicUrl;
+  } catch (err) {
+    console.error("Storage Error:", err);
+    throw err;
   }
 }
 
@@ -143,265 +59,318 @@ function auth(req, res, next) {
   if (!header) return res.status(401).json({ error: "No token" });
   try {
     const token = header.split(" ")[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch (err) { res.status(401).json({ error: "Invalid token" }); }
 }
-
-/* ================== UNREAD / NOTIFICATION ROUTES ================== */
-
-app.get("/api/unread-counts", auth, async (req, res) => {
-  try {
-    const username = req.user.userId;
-
-    // 1. Count Unread Chat Messages
-    const [chatRows] = await db.execute(
-      "SELECT COUNT(*) as count FROM messages WHERE author != ? AND is_read = false", 
-      [username]
-    );
-
-    // 2. Count Unread Feed Posts (Posts created after user's last check)
-    const [feedRows] = await db.execute(
-      `SELECT COUNT(*) as count FROM posts 
-       WHERE author != ? 
-       AND time > (SELECT last_feed_check FROM users WHERE username = ?)`,
-      [username, username]
-    );
-
-    res.json({ 
-      unreadChat: chatRows[0].count, 
-      unreadFeed: feedRows[0].count 
-    });
-  } catch (err) { res.status(500).json({ error: "Server error" }); }
-});
-
-app.post("/api/mark-read", auth, async (req, res) => {
-  try {
-    const { type } = req.body;
-    const username = req.user.userId;
-
-    if (type === 'chat') {
-      await db.execute("UPDATE messages SET is_read = true WHERE author != ? AND is_read = false", [username]);
-    } else if (type === 'feed') {
-      await db.execute("UPDATE users SET last_feed_check = NOW() WHERE username = ?", [username]);
-    }
-    
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: "Server error" }); }
-});
 
 /* ================== AUTH & PROFILE ROUTES ================== */
 app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
   try {
-    const [rows] = await db.execute("SELECT * FROM users WHERE username = ?", [username]);
-    if (!rows.length) return res.status(401).json({ error: "Invalid credentials" });
-    
-    const valid = await bcrypt.compare(password, rows[0].password);
-    if (!valid) return res.status(401).json({ error: "Invalid credentials" });
-    
+    const { data: user } = await supabase.from('users').select('*').eq('username', username).single();
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
     const token = jwt.sign({ userId: username }, process.env.JWT_SECRET, { expiresIn: "7d" });
-    res.json({ 
-      token, 
-      username: rows[0].username, 
-      profilePhoto: rows[0].profile_photo,
-      bio: rows[0].bio 
-    });
+    res.json({ token, username: user.username, profilePhoto: user.profile_photo, bio: user.bio });
   } catch (err) { res.status(500).json({ error: "Server error" }); }
 });
 
 app.get("/api/profile/:username", auth, async (req, res) => {
   try {
-    const [user] = await db.execute("SELECT username, profile_photo, bio FROM users WHERE username = ?", [req.params.username]);
-    const [history] = await db.execute("SELECT photo_url, created_at FROM profile_photos WHERE username = ? ORDER BY created_at DESC", [req.params.username]);
-    
-    if(!user.length) return res.status(404).json({ error: "User not found" });
-    res.json({ ...user[0], history });
+    const { data: user } = await supabase.from('users').select('username, profile_photo, bio').eq('username', req.params.username).single();
+    const { data: history } = await supabase.from('profile_photos').select('photo_url, created_at').eq('username', req.params.username).order('created_at', { ascending: false });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json({ ...user, history });
   } catch (err) { res.status(500).json({ error: "Server error" }); }
 });
 
 app.post("/api/profile/photo", auth, upload.single("photo"), async (req, res) => {
   try {
     const username = req.user.userId;
-    const newPhotoUrl = `/uploads/${req.file.filename}`;
-    const [currentUser] = await db.execute("SELECT profile_photo FROM users WHERE username = ?", [username]);
-    if (currentUser[0].profile_photo) {
-      await db.execute("INSERT INTO profile_photos (username, photo_url) VALUES (?, ?)", [username, currentUser[0].profile_photo]);
+    const publicUrl = await uploadToSupabase(req.file);
+    const { data: user } = await supabase.from('users').select('profile_photo').eq('username', username).single();
+    if (user?.profile_photo) {
+      await supabase.from('profile_photos').insert({ username, photo_url: user.profile_photo });
     }
-    await db.execute("UPDATE users SET profile_photo = ? WHERE username = ?", [newPhotoUrl, username]);
-    res.json({ success: true, photoUrl: newPhotoUrl });
+    await supabase.from('users').update({ profile_photo: publicUrl }).eq('username', username);
+    res.json({ success: true, photoUrl: publicUrl });
   } catch (err) { res.status(500).json({ error: "Upload failed" }); }
 });
 
+// FIXED SETTINGS ROUTE
 app.put("/api/profile/settings", auth, async (req, res) => {
   try {
     const oldUsername = req.user.userId;
     const { newUsername, newPassword, bio, currentPassword } = req.body;
-    const [userRows] = await db.execute("SELECT password FROM users WHERE username = ?", [oldUsername]);
-    if (!userRows.length) return res.status(404).json({ error: "User not found" });
-    const isMatch = await bcrypt.compare(currentPassword, userRows[0].password);
+
+    // 1. Get current user data
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('password')
+      .eq('username', oldUsername)
+      .single();
+
+    if (userError || !user) return res.status(404).json({ error: "User not found" });
+
+    // 2. Verify current password
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
     if (!isMatch) return res.status(401).json({ error: "Current password is incorrect." });
 
+    let updates = {};
+    if (bio !== undefined) updates.bio = bio;
     if (newPassword && newPassword.trim() !== "") {
-      const hash = await bcrypt.hash(newPassword, 10);
-      await db.execute("UPDATE users SET password = ? WHERE username = ?", [hash, oldUsername]);
+      updates.password = await bcrypt.hash(newPassword, 10);
     }
-    if (bio !== undefined) await db.execute("UPDATE users SET bio = ? WHERE username = ?", [bio, oldUsername]);
+
+    // 3. Handle Username Change
     if (newUsername && newUsername !== oldUsername) {
-      const [existing] = await db.execute("SELECT id FROM users WHERE username = ?", [newUsername]);
-      if (existing.length > 0) return res.status(400).json({ error: "Username taken." });
-      await db.execute("UPDATE users SET username = ? WHERE username = ?", [newUsername, oldUsername]);
-      await db.execute("UPDATE posts SET author = ? WHERE author = ?", [newUsername, oldUsername]);
-      await db.execute("UPDATE messages SET author = ? WHERE author = ?", [newUsername, oldUsername]);
-      await db.execute("UPDATE comments SET author = ? WHERE author = ?", [newUsername, oldUsername]);
-      await db.execute("UPDATE profile_photos SET username = ? WHERE username = ?", [newUsername, oldUsername]);
-      await db.execute("UPDATE dua_confirmations SET user_id = ? WHERE user_id = ?", [newUsername, oldUsername]);
+      const { data: existing } = await supabase.from('users').select('username').eq('username', newUsername).maybeSingle();
+      if (existing) return res.status(400).json({ error: "Username taken." });
+
+      // If your Supabase doesn't have "ON UPDATE CASCADE" enabled on foreign keys, 
+      // you must update all related tables manually:
+      await supabase.from('posts').update({ author: newUsername }).eq('author', oldUsername);
+      await supabase.from('messages').update({ author: newUsername }).eq('author', oldUsername);
+      await supabase.from('comments').update({ author: newUsername }).eq('author', oldUsername);
+      await supabase.from('profile_photos').update({ username: newUsername }).eq('username', oldUsername);
+      await supabase.from('dua_confirmations').update({ username: newUsername }).eq('username', oldUsername);
+      
+      updates.username = newUsername;
     }
+
+    // 4. Update the user
+    const { error: updateError } = await supabase.from('users').update(updates).eq('username', oldUsername);
+    if (updateError) throw updateError;
+
     res.json({ success: true, message: "Settings updated successfully" });
-  } catch (err) { res.status(500).json({ error: "Server error" }); }
+  } catch (err) { 
+    console.error("Settings Update Error:", err);
+    res.status(500).json({ error: "Server error" }); 
+  }
 });
 
 /* ================== FEED POSTS ROUTES ================== */
 app.get("/api/posts", auth, async (req, res) => {
   try {
-    const [posts] = await db.execute(`
-      SELECT p.*, (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', dc.id, 'username', dc.user_id, 'is_thanked', dc.is_thanked)) FROM dua_confirmations dc WHERE dc.dua_id = p.id) AS confirmations
-      FROM posts p ORDER BY p.time DESC
-    `);
-    for (let post of posts) {
-      const [files] = await db.execute("SELECT file_url, file_type, file_name FROM post_files WHERE post_id = ?", [post.id]);
-      const [comments] = await db.execute(`SELECT c.*, r.author AS reply_to_name FROM comments c LEFT JOIN comments r ON c.reply_to = r.id WHERE c.post_id = ? ORDER BY c.time ASC`, [post.id]);
-      post.files = files;
-      post.comments = comments;
-      post.confirmations = post.confirmations || []; 
-    }
-    res.json(posts);
-  } catch (err) { res.status(500).json({ error: "Fetch error" }); }
+    const { data: posts, error } = await supabase
+      .from('posts')
+      .select(`
+        *,
+        author_details:users!posts_author_fkey(profile_photo),
+        post_files (*),
+        confirmations:dua_confirmations!dua_confirmations_post_id_fkey (*),
+        comments (
+          *,
+          reply_to_name:comments!reply_to(author)
+        )
+      `)
+      .order('time', { ascending: false });
+
+    if (error) throw error;
+
+    const formattedPosts = posts.map(post => ({
+      ...post,
+      author_photo: post.author_details?.profile_photo,
+      comments: (post.comments || []).map(c => ({
+        ...c,
+        reply_to_name: c.reply_to_name?.author || null
+      })).sort((a, b) => new Date(a.time) - new Date(b.time))
+    }));
+
+    res.json(formattedPosts);
+  } catch (err) {
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
 app.post("/api/posts", auth, upload.array("files", 10), async (req, res) => {
   try {
     const author = req.user.userId;
-    const { text, type } = req.body; 
-    const [result] = await db.execute("INSERT INTO posts (author, text, type) VALUES (?, ?, ?)", [author, text || null, type || 'post']);
-    const postId = result.insertId;
-    if (req.files) {
-      for (let file of req.files) {
-        await db.execute("INSERT INTO post_files (post_id, file_url, file_type, file_name) VALUES (?, ?, ?, ?)", [postId, `/uploads/${file.filename}`, file.mimetype, file.originalname]);
-      }
+    const { text, type } = req.body;
+    const { data: post, error: postErr } = await supabase.from('posts').insert({ author, text, type: type || 'post' }).select().single();
+    if (postErr) throw postErr;
+
+    if (req.files && req.files.length > 0) {
+      const filesData = await Promise.all(req.files.map(async (file) => {
+        const url = await uploadToSupabase(file);
+        return { post_id: post.id, file_url: url, file_type: file.mimetype, file_name: file.originalname };
+      }));
+      await supabase.from('post_files').insert(filesData.filter(f => f !== null));
     }
-    io.emit("newPost", { id: postId, author, text, type: type || 'post' });
-    res.json({ success: true, id: postId });
-  } catch (err) { res.status(500).send(); }
-});
 
-app.post("/api/dua/confirm/:id", auth, async (req, res) => {
-  try {
-    const duaId = req.params.id;
-    const userId = req.user.userId;
-    await db.execute("INSERT IGNORE INTO dua_confirmations (dua_id, user_id) VALUES (?, ?)", [duaId, userId]);
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: "Confirmation failed" }); }
-});
-
-app.post("/api/dua/thank/:confId", auth, async (req, res) => {
-  try {
-    const { confId } = req.params;
-    const currentUsername = req.user.userId;
-    const [rows] = await db.execute(`SELECT p.author FROM posts p JOIN dua_confirmations dc ON p.id = dc.dua_id WHERE dc.id = ?`, [confId]);
-    if (rows.length === 0) return res.status(404).json({ error: "Not found" });
-    if (rows[0].author !== currentUsername) return res.status(403).json({ error: "Unauthorized" });
-    await db.execute("UPDATE dua_confirmations SET is_thanked = TRUE WHERE id = ?", [confId]);
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: "Server error" }); }
+    io.emit("newPost", post);
+    res.json({ success: true, id: post.id });
+  } catch (err) { res.status(500).json({ error: "Failed to create post" }); }
 });
 
 app.put("/api/posts/:id", auth, async (req, res) => {
   try {
     const { text } = req.body;
-    const [rows] = await db.execute("SELECT author FROM posts WHERE id = ?", [req.params.id]);
-    if (!rows.length || rows[0].author !== req.user.userId) return res.status(403).send();
-    await db.execute("UPDATE posts SET text = ? WHERE id = ?", [text, req.params.id]);
-    res.json({ success: true });
-  } catch (err) { res.status(500).send(); }
+    const { data, error } = await supabase
+      .from('posts')
+      .update({ text })
+      .eq('id', req.params.id)
+      .eq('author', req.user.userId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    io.emit("newPost"); 
+    res.json(data);
+  } catch (err) { res.status(500).json({ error: "Update failed" }); }
 });
 
 app.delete("/api/posts/:id", auth, async (req, res) => {
   try {
-    const [rows] = await db.execute("SELECT author FROM posts WHERE id = ?", [req.params.id]);
-    if (!rows.length || rows[0].author !== req.user.userId) return res.status(403).send();
-    const [files] = await db.execute("SELECT file_url FROM post_files WHERE post_id = ?", [req.params.id]);
-    files.forEach(f => {
-      const p = path.join(__dirname, f.file_url);
-      if (fs.existsSync(p)) fs.unlinkSync(p);
-    });
-    await db.execute("DELETE FROM posts WHERE id = ?", [req.params.id]);
+    const { data: post } = await supabase.from('posts').select('author').eq('id', req.params.id).single();
+    if (!post || post.author !== req.user.userId) return res.status(403).send();
+    await supabase.from('posts').delete().eq('id', req.params.id);
+    io.emit("newPost");
     res.json({ success: true });
-  } catch (err) { res.status(500).send(); }
+  } catch (err) { res.status(500).json({ error: "Delete failed" }); }
 });
 
-/* ================== COMMENT ROUTES ================== */
-app.post("/api/posts/:postId/comments", auth, async (req, res) => {
+/* ================== DUA CONFIRMATION ROUTES ================== */
+app.post("/api/dua/confirm/:postId", auth, async (req, res) => {
   try {
-    const { text, replyTo } = req.body;
-    const [result] = await db.execute("INSERT INTO comments (post_id, author, text, reply_to) VALUES (?, ?, ?, ?)", [req.params.postId, req.user.userId, text, replyTo || null]);
-    const [comment] = await db.execute(`SELECT c.*, r.author AS reply_to_name FROM comments c LEFT JOIN comments r ON c.reply_to = r.id WHERE c.id = ?`, [result.insertId]);
-    res.json(comment[0]);
-  } catch (err) { res.status(500).send(); }
-});
+    const { postId } = req.params;
+    const username = req.user.userId;
+    const { data: existing } = await supabase.from('dua_confirmations').select('*').eq('post_id', postId).eq('username', username).maybeSingle();
+    if (existing) return res.status(400).json({ error: "Already confirmed" });
 
-app.put("/api/comments/:id", auth, async (req, res) => {
-  try {
-    const { text } = req.body;
-    await db.execute("UPDATE comments SET text = ? WHERE id = ? AND author = ?", [text, req.params.id, req.user.userId]);
+    await supabase.from('dua_confirmations').insert([{ post_id: postId, username: username, is_thanked: false }]);
+    io.emit("duaUpdate", { postId, type: 'CONFIRMATION', user: username }); 
     res.json({ success: true });
-  } catch (err) { res.status(500).send(); }
+  } catch (err) { res.status(500).json({ error: "Failed to confirm Dua" }); }
 });
 
-app.delete("/api/comments/:id", auth, async (req, res) => {
+app.post("/api/dua/thank/:confId", auth, async (req, res) => {
   try {
-    await db.execute("DELETE FROM comments WHERE id = ? AND author = ?", [req.params.id, req.user.userId]);
+    const { confId } = req.params;
+    const { data: conf } = await supabase.from('dua_confirmations').select('post_id').eq('id', confId).single();
+    if (!conf) return res.status(404).json({ error: "Not found" });
+
+    await supabase.from('dua_confirmations').update({ is_thanked: true }).eq('id', confId);
+    io.emit("duaUpdate", { postId: conf.post_id, type: 'THANK' });
     res.json({ success: true });
-  } catch (err) { res.status(500).send(); }
+  } catch (err) { res.status(500).json({ error: "Failed to say Amin" }); }
 });
 
-/* ================== CHAT MESSAGE ROUTES ================== */
+/* ================== CHAT MESSAGES ================== */
 app.get("/api/messages", auth, async (req, res) => {
   try {
-    const [rows] = await db.execute(`SELECT m1.*, m2.author AS reply_author, m2.text AS reply_text FROM messages m1 LEFT JOIN messages m2 ON m1.reply_to = m2.id ORDER BY m1.time ASC`);
-    res.json(rows);
-  } catch (err) { res.status(500).send(); }
+    const { data } = await supabase.from('messages').select('*, replyTo:messages(id, author, text, file_name)').order('time', { ascending: true });
+    const formattedData = data.map(msg => ({ ...msg, replyTo: Array.isArray(msg.replyTo) ? msg.replyTo[0] : msg.replyTo }));
+    res.json(formattedData);
+  } catch (err) { res.status(500).json({ error: "Server Error" }); }
 });
 
 app.post("/api/messages", auth, upload.single("file"), async (req, res) => {
   try {
     const author = req.user.userId;
     const { text, replyTo } = req.body;
-    let fileData = [null, null, null, null];
-    if (req.file) fileData = [`/uploads/${req.file.filename}`, req.file.mimetype, req.file.originalname, req.file.size];
-
-    const [result] = await db.execute("INSERT INTO messages (author, text, file_url, file_type, file_name, file_size, reply_to) VALUES (?, ?, ?, ?, ?, ?, ?)", [author, text || null, ...fileData, replyTo || null]);
-    const [newMsg] = await db.execute(`SELECT m1.*, m2.author AS reply_author, m2.text AS reply_text FROM messages m1 LEFT JOIN messages m2 ON m1.reply_to = m2.id WHERE m1.id = ?`, [result.insertId]);
-    
-    io.emit("newMessage", newMsg[0]);
-    res.json(newMsg[0]);
-  } catch (err) { res.status(500).send(); }
+    let fileObj = {};
+    if (req.file) {
+      const url = await uploadToSupabase(req.file);
+      fileObj = { file_url: url, file_type: req.file.mimetype, file_name: req.file.originalname, file_size: req.file.size };
+    }
+    const { data: rawMsg } = await supabase.from('messages').insert({ author, text, reply_to: replyTo && replyTo !== "null" ? replyTo : null, ...fileObj }).select('*, replyTo:messages(id, author, text, file_name)').single();
+    const formattedMsg = { ...rawMsg, replyTo: Array.isArray(rawMsg.replyTo) ? rawMsg.replyTo[0] : rawMsg.replyTo };
+    io.emit("newMessage", formattedMsg);
+    res.json(formattedMsg);
+  } catch (err) { res.status(500).json({ error: "Failed to send message" }); }
 });
 
-/* ================== SOCKET SETUP ================== */
+app.put("/api/messages/:id", auth, async (req, res) => {
+  try {
+    const { text } = req.body;
+    const { data } = await supabase.from('messages').update({ text }).eq('id', req.params.id).eq('author', req.user.userId).select('*, replyTo:messages(id, author, text, file_name)').single();
+    const formatted = { ...data, replyTo: Array.isArray(data.replyTo) ? data.replyTo[0] : data.replyTo };
+    io.emit("updateMessage", formatted);
+    res.json(formatted);
+  } catch (err) { res.status(500).json({ error: "Update failed" }); }
+});
+
+app.delete("/api/messages/:id", auth, async (req, res) => {
+  try {
+    await supabase.from('messages').delete().eq('id', req.params.id).eq('author', req.user.userId);
+    io.emit("deleteMessage", { id: parseInt(req.params.id) });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: "Delete failed" }); }
+});
+
+/* ================== UNREAD TRACKING ================== */
+app.get("/api/unread-counts", auth, async (req, res) => {
+  try {
+    const username = req.user.userId;
+    const { count: chatCount } = await supabase.from('messages').select('*', { count: 'exact', head: true }).neq('author', username).eq('is_read', false);
+    const { data: user } = await supabase.from('users').select('last_feed_check').eq('username', username).single();
+    const lastCheck = user?.last_feed_check || '1970-01-01T00:00:00Z';
+    const { count: feedCount } = await supabase.from('posts').select('*', { count: 'exact', head: true }).neq('author', username).gt('time', lastCheck);
+    res.json({ unreadChat: chatCount || 0, unreadFeed: feedCount || 0 });
+  } catch (err) { res.json({ unreadChat: 0, unreadFeed: 0 }); }
+});
+
+app.post("/api/mark-read", auth, async (req, res) => {
+  try {
+    const { type } = req.body;
+    const username = req.user.userId;
+    if (type === 'chat') {
+      await supabase.from('messages').update({ is_read: true }).neq('author', username).eq('is_read', false);
+    } else if (type === 'feed') {
+      await supabase.from('users').update({ last_feed_check: new Date().toISOString() }).eq('username', username);
+    }
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: "Mark read failed" }); }
+});
+
+/* ================== COMMENT ROUTES ================== */
+app.post("/api/posts/:postId/comments", auth, async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const { text, replyTo } = req.body; 
+    const { data: comment } = await supabase.from('comments').insert({ post_id: postId, author: req.user.userId, text, reply_to: replyTo || null }).select(`*, reply_to_name:comments!reply_to(author)`).single();
+    res.json({ ...comment, reply_to_name: comment.reply_to_name?.author || null });
+  } catch (err) { res.status(500).json({ error: "Failed to add comment" }); }
+});
+
+app.put("/api/comments/:id", auth, async (req, res) => {
+  try {
+    const { text } = req.body;
+    const { data } = await supabase.from('comments').update({ text }).eq('id', req.params.id).eq('author', req.user.userId).select().single();
+    res.json(data);
+  } catch (err) { res.status(500).json({ error: "Update failed" }); }
+});
+
+app.delete("/api/comments/:id", auth, async (req, res) => {
+  try {
+    await supabase.from('comments').delete().eq('id', req.params.id).eq('author', req.user.userId);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: "Delete failed" }); }
+});
+
+/* ================== SEEDING & START ================== */
+async function seedUsers() {
+  try {
+    const hash = await bcrypt.hash("123456", 10);
+    for (const username of ALLOWED_USERS) {
+      await supabase.from('users').upsert({ username, password: hash }, { onConflict: 'username' });
+    }
+  } catch (err) { console.error("Seeding Error:", err); }
+}
+
 io.use((socket, next) => {
   try {
     const token = socket.handshake.auth.token;
-    if (!token) return next(new Error("No token"));
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    socket.user = decoded;
+    socket.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch (err) { next(new Error("Auth error")); }
 });
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, async () => {
-  await connectDB();
-  console.log(`🚀 Backend running on port ${PORT}`);
+  await seedUsers();
+  console.log(`🚀 Supabase Server running on port ${PORT}`);
 });
