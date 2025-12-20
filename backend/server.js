@@ -12,35 +12,43 @@ require("dotenv").config();
 const app = express();
 const server = http.createServer(app);
 
-/* ================== CONFIGURATION ================== */
-const PORT = process.env.PORT || 4000;
-const CLIENT_ORIGIN = "https://4plusone.netlify.app";
-const ALLOWED_USERS = ["Abdurazaqm", "Semira", "ZebibaS", "Hawlet", "ZebibaM"];
+// 1. DYNAMIC CORS CONFIGURATION
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://4plusone.netlify.app"
+];
 
-// Initialize Supabase
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
-
-/* ================== CORS SETUP (FIXED) ================== */
 const corsOptions = {
-  origin: CLIENT_ORIGIN,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
   credentials: true,
-  optionsSuccessStatus: 200
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
 };
 
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions)); // Enable preflight for all routes
+app.options("*", cors(corsOptions)); // Enable pre-flight for all routes
 app.use(express.json());
 
-/* ================== SOCKET.IO SETUP ================== */
 const io = socketIo(server, {
-  cors: { 
-    origin: CLIENT_ORIGIN,
+  cors: {
+    origin: allowedOrigins,
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true
   },
 });
+
+// Initialize Supabase
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+
+const ALLOWED_USERS = ["Abdurazaqm", "Semira", "ZebibaS", "Hawlet", "ZebibaM"];
 
 /* ================== MULTER CONFIG ================== */
 const storage = multer.memoryStorage();
@@ -49,7 +57,7 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 } 
 });
 
-/* ================== HELPERS & MIDDLEWARE ================== */
+/* ================== STORAGE HELPER ================== */
 async function uploadToSupabase(file) {
   try {
     const fileName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`;
@@ -68,6 +76,7 @@ async function uploadToSupabase(file) {
   }
 }
 
+/* ================== AUTH MIDDLEWARE ================== */
 function auth(req, res, next) {
   const header = req.headers.authorization;
   if (!header) return res.status(401).json({ error: "No token" });
@@ -75,9 +84,7 @@ function auth(req, res, next) {
     const token = header.split(" ")[1];
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
-  } catch (err) { 
-    res.status(401).json({ error: "Invalid token" }); 
-  }
+  } catch (err) { res.status(401).json({ error: "Invalid token" }); }
 }
 
 /* ================== AUTH & PROFILE ROUTES ================== */
@@ -120,7 +127,12 @@ app.put("/api/profile/settings", auth, async (req, res) => {
     const oldUsername = req.user.userId;
     const { newUsername, newPassword, bio, currentPassword } = req.body;
 
-    const { data: user, error: userError } = await supabase.from('users').select('password').eq('username', oldUsername).single();
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('password')
+      .eq('username', oldUsername)
+      .single();
+
     if (userError || !user) return res.status(404).json({ error: "User not found" });
 
     const isMatch = await bcrypt.compare(currentPassword, user.password);
@@ -141,11 +153,13 @@ app.put("/api/profile/settings", auth, async (req, res) => {
       await supabase.from('comments').update({ author: newUsername }).eq('author', oldUsername);
       await supabase.from('profile_photos').update({ username: newUsername }).eq('username', oldUsername);
       await supabase.from('dua_confirmations').update({ username: newUsername }).eq('username', oldUsername);
+      
       updates.username = newUsername;
     }
 
     const { error: updateError } = await supabase.from('users').update(updates).eq('username', oldUsername);
     if (updateError) throw updateError;
+
     res.json({ success: true, message: "Settings updated successfully" });
   } catch (err) { 
     console.error("Settings Update Error:", err);
@@ -163,7 +177,10 @@ app.get("/api/posts", auth, async (req, res) => {
         author_details:users!posts_author_fkey(profile_photo),
         post_files (*),
         confirmations:dua_confirmations!dua_confirmations_post_id_fkey (*),
-        comments (*, reply_to_name:comments!reply_to(author))
+        comments (
+          *,
+          reply_to_name:comments!reply_to(author)
+        )
       `)
       .order('time', { ascending: false });
 
@@ -177,8 +194,11 @@ app.get("/api/posts", auth, async (req, res) => {
         reply_to_name: c.reply_to_name?.author || null
       })).sort((a, b) => new Date(a.time) - new Date(b.time))
     }));
+
     res.json(formattedPosts);
-  } catch (err) { res.status(500).json({ error: "Internal Server Error" }); }
+  } catch (err) {
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
 app.post("/api/posts", auth, upload.array("files", 10), async (req, res) => {
@@ -195,6 +215,7 @@ app.post("/api/posts", auth, upload.array("files", 10), async (req, res) => {
       }));
       await supabase.from('post_files').insert(filesData.filter(f => f !== null));
     }
+
     io.emit("newPost", post);
     res.json({ success: true, id: post.id });
   } catch (err) { res.status(500).json({ error: "Failed to create post" }); }
@@ -203,7 +224,14 @@ app.post("/api/posts", auth, upload.array("files", 10), async (req, res) => {
 app.put("/api/posts/:id", auth, async (req, res) => {
   try {
     const { text } = req.body;
-    const { data, error } = await supabase.from('posts').update({ text }).eq('id', req.params.id).eq('author', req.user.userId).select().single();
+    const { data, error } = await supabase
+      .from('posts')
+      .update({ text })
+      .eq('id', req.params.id)
+      .eq('author', req.user.userId)
+      .select()
+      .single();
+
     if (error) throw error;
     io.emit("newPost"); 
     res.json(data);
@@ -220,13 +248,14 @@ app.delete("/api/posts/:id", auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Delete failed" }); }
 });
 
-/* ================== DUA & MESSAGES ================== */
+/* ================== DUA CONFIRMATION ROUTES ================== */
 app.post("/api/dua/confirm/:postId", auth, async (req, res) => {
   try {
     const { postId } = req.params;
     const username = req.user.userId;
     const { data: existing } = await supabase.from('dua_confirmations').select('*').eq('post_id', postId).eq('username', username).maybeSingle();
     if (existing) return res.status(400).json({ error: "Already confirmed" });
+
     await supabase.from('dua_confirmations').insert([{ post_id: postId, username: username, is_thanked: false }]);
     io.emit("duaUpdate", { postId, type: 'CONFIRMATION', user: username }); 
     res.json({ success: true });
@@ -238,12 +267,14 @@ app.post("/api/dua/thank/:confId", auth, async (req, res) => {
     const { confId } = req.params;
     const { data: conf } = await supabase.from('dua_confirmations').select('post_id').eq('id', confId).single();
     if (!conf) return res.status(404).json({ error: "Not found" });
+
     await supabase.from('dua_confirmations').update({ is_thanked: true }).eq('id', confId);
     io.emit("duaUpdate", { postId: conf.post_id, type: 'THANK' });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: "Failed to say Amin" }); }
 });
 
+/* ================== CHAT MESSAGES ================== */
 app.get("/api/messages", auth, async (req, res) => {
   try {
     const { data } = await supabase.from('messages').select('*, replyTo:messages(id, author, text, file_name)').order('time', { ascending: true });
@@ -268,6 +299,16 @@ app.post("/api/messages", auth, upload.single("file"), async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Failed to send message" }); }
 });
 
+app.put("/api/messages/:id", auth, async (req, res) => {
+  try {
+    const { text } = req.body;
+    const { data } = await supabase.from('messages').update({ text }).eq('id', req.params.id).eq('author', req.user.userId).select('*, replyTo:messages(id, author, text, file_name)').single();
+    const formatted = { ...data, replyTo: Array.isArray(data.replyTo) ? data.replyTo[0] : data.replyTo };
+    io.emit("updateMessage", formatted);
+    res.json(formatted);
+  } catch (err) { res.status(500).json({ error: "Update failed" }); }
+});
+
 app.delete("/api/messages/:id", auth, async (req, res) => {
   try {
     await supabase.from('messages').delete().eq('id', req.params.id).eq('author', req.user.userId);
@@ -276,7 +317,7 @@ app.delete("/api/messages/:id", auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Delete failed" }); }
 });
 
-/* ================== UNREAD & COMMENTS ================== */
+/* ================== UNREAD TRACKING ================== */
 app.get("/api/unread-counts", auth, async (req, res) => {
   try {
     const username = req.user.userId;
@@ -301,6 +342,7 @@ app.post("/api/mark-read", auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Mark read failed" }); }
 });
 
+/* ================== COMMENT ROUTES ================== */
 app.post("/api/posts/:postId/comments", auth, async (req, res) => {
   try {
     const { postId } = req.params;
@@ -310,6 +352,14 @@ app.post("/api/posts/:postId/comments", auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Failed to add comment" }); }
 });
 
+app.put("/api/comments/:id", auth, async (req, res) => {
+  try {
+    const { text } = req.body;
+    const { data } = await supabase.from('comments').update({ text }).eq('id', req.params.id).eq('author', req.user.userId).select().single();
+    res.json(data);
+  } catch (err) { res.status(500).json({ error: "Update failed" }); }
+});
+
 app.delete("/api/comments/:id", auth, async (req, res) => {
   try {
     await supabase.from('comments').delete().eq('id', req.params.id).eq('author', req.user.userId);
@@ -317,7 +367,7 @@ app.delete("/api/comments/:id", auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Delete failed" }); }
 });
 
-/* ================== STARTUP ================== */
+/* ================== SEEDING & START ================== */
 async function seedUsers() {
   try {
     const hash = await bcrypt.hash("123456", 10);
@@ -335,6 +385,7 @@ io.use((socket, next) => {
   } catch (err) { next(new Error("Auth error")); }
 });
 
+const PORT = process.env.PORT || 4000;
 server.listen(PORT, async () => {
   await seedUsers();
   console.log(`🚀 Supabase Server running on port ${PORT}`);
