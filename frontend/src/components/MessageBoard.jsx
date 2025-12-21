@@ -7,10 +7,10 @@ import {
   FiHeadphones, FiDownload, FiPlay, FiPause, FiMoreVertical,
   FiCornerUpLeft,
 } from "react-icons/fi";
-import { getMessages, addMessage, markRead } from "../api"; // Ensure markRead is imported
+import { getMessages, addMessage, markRead } from "../api"; 
 import { useNavigate } from "react-router-dom";
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "https://fourplusone.onrender.com";
 
 /* ---------------- HELPERS ---------------- */
 const getFileType = (fileType, fileName) => {
@@ -95,8 +95,6 @@ const MessageItem = memo(({ message, isMine, editingId, setEditingId, setEditTex
   if (!message || !message.author) return null;
   const letter = message.author[0].toUpperCase();
   const isEditing = editingId === message.id;
-  
-  // UNREAD LOGIC: If not mine and is_read is false
   const isUnread = !isMine && message.is_read === false;
 
   const [openMenu, setOpenMenu] = useState(false);
@@ -112,7 +110,7 @@ const MessageItem = memo(({ message, isMine, editingId, setEditingId, setEditTex
 
   return (
     <div id={`msg-${message.id}`} className={`flex gap-2 w-full transition-all duration-300 ${isMine ? "justify-end" : "justify-start"} ${isUnread ? "animate-unread-pulse" : ""}`}>
-      {!isMine && <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-purple-400 text-white flex items-center justify-center font-bold shrink-0 text-sm">{letter}</div>}
+      {!isMine && <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-purple-400 text-white flex items-center justify-center font-bold shrink-0 text-sm self-end mb-1">{letter}</div>}
       
       <div className={`relative max-w-[88%] sm:max-w-[70%] p-3 rounded-2xl shadow break-words transition-all
         ${isMine ? "bg-purple-600 text-white rounded-br-none" : "bg-white text-gray-900 rounded-bl-none"}
@@ -161,7 +159,7 @@ const MessageItem = memo(({ message, isMine, editingId, setEditingId, setEditTex
           {new Date(message.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </p>
       </div>
-      {isMine && <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-purple-700 text-white flex items-center justify-center font-bold shrink-0 text-sm">{letter}</div>}
+      {isMine && <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-purple-700 text-white flex items-center justify-center font-bold shrink-0 text-sm self-end mb-1">{letter}</div>}
     </div>
   );
 });
@@ -182,14 +180,12 @@ export default function MessageBoard() {
   const messagesEndRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
-  const emojiPickerRef = useRef(null);
   const fileInputRef = useRef(null);
 
   const token = localStorage.getItem("token");
   const username = localStorage.getItem("username") || "User";
   const navigate = useNavigate();
 
-  // 1. Load Messages and immediately mark them as read
   useEffect(() => {
     getMessages().then((data) => {
       if (data) setMessages(data.sort((a, b) => new Date(a.time) - new Date(b.time)));
@@ -198,9 +194,7 @@ export default function MessageBoard() {
   }, []);
 
   const markAsRead = async () => {
-    try {
-      await markRead('chat');
-    } catch (err) { console.error("Mark read error:", err); }
+    try { await markRead('chat'); } catch (err) { console.error("Mark read error:", err); }
   };
 
   useEffect(() => {
@@ -215,7 +209,6 @@ export default function MessageBoard() {
           if (prev.find((m) => m.id === msg.id)) return prev;
           return [...prev, msg].sort((a, b) => new Date(a.time) - new Date(b.time));
         });
-        // If we are actively in the chat, mark this incoming message as read
         markAsRead();
       }
     });
@@ -346,46 +339,54 @@ export default function MessageBoard() {
   }, [username]);
 
   return (
-    <section className="h-screen flex flex-col bg-gray-50 overflow-hidden">
-      <header className="p-3 bg-white shadow-sm flex items-center z-20 shrink-0">
-        <button onClick={() => navigate("/")} className="flex items-center gap-2 text-purple-600 font-medium text-sm sm:text-base"><FiArrowLeft /> Back</button>
+    <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
+      {/* HEADER: Floats at the top */}
+      <header className="p-3 bg-white shadow-sm flex items-center shrink-0 z-50 border-b">
+        <button onClick={() => navigate("/")} className="flex items-center gap-2 text-purple-600 font-medium text-sm sm:text-base">
+          <FiArrowLeft /> Back
+        </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-2 sm:p-4">
-        <div className="max-w-3xl mx-auto flex flex-col gap-3">
-          {messages.map((m, index) => (
-            <MessageItem
-              key={m.id ? `msg-${m.id}` : `temp-${index}-${m.time}`}
-              message={m}
-              isMine={m.author === username}
-              editingId={editingId}
-              setEditingId={setEditingId}
-              setEditText={setEditText}
-              editText={editText}
-              onSave={saveEdit}
-              onDelete={deleteMsg}
-              renderFile={renderFileContent}
-              setReplyTo={setReplyTo}
-              onReplyClick={scrollToMessage}
-            />
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
-      </div>
-
-      {uploadProgress && (
-        <div className="bg-white px-4 py-2 border-t flex items-center gap-3">
-          <div className="text-xs font-bold text-purple-600 animate-pulse">Uploading...</div>
-          <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full bg-purple-500 transition-all" style={{ width: `${uploadProgress.progress}%` }} />
+      {/* MESSAGE BODY: Flexible and scrollable */}
+      <main className="flex-1 overflow-y-auto p-3 sm:p-4 flex flex-col">
+        {/* Container that pushes content to bottom when list is short */}
+        <div className="flex-1 flex flex-col justify-end">
+          <div className="max-w-4xl mx-auto w-full flex flex-col gap-3">
+            {messages.map((m, index) => (
+              <MessageItem
+                key={m.id ? `msg-${m.id}` : `temp-${index}-${m.time}`}
+                message={m}
+                isMine={m.author === username}
+                editingId={editingId}
+                setEditingId={setEditingId}
+                setEditText={setEditText}
+                editText={editText}
+                onSave={saveEdit}
+                onDelete={deleteMsg}
+                renderFile={renderFileContent}
+                setReplyTo={setReplyTo}
+                onReplyClick={scrollToMessage}
+              />
+            ))}
+            <div ref={messagesEndRef} />
           </div>
-          <div className="text-[10px] text-gray-400">{uploadProgress.progress}%</div>
         </div>
-      )}
+      </main>
 
-      <footer className="bg-white border-t relative shrink-0">
+      {/* FOOTER: Fixed at the bottom */}
+      <footer className="bg-white border-t shrink-0 z-50">
+        {uploadProgress && (
+          <div className="bg-white px-4 py-2 border-b flex items-center gap-3">
+            <div className="text-xs font-bold text-purple-600 animate-pulse">Uploading...</div>
+            <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-full bg-purple-500 transition-all" style={{ width: `${uploadProgress.progress}%` }} />
+            </div>
+            <div className="text-[10px] text-gray-400">{uploadProgress.progress}%</div>
+          </div>
+        )}
+
         {replyTo && (
-          <div className="absolute bottom-full left-0 w-full bg-purple-50 border-l-4 border-purple-500 px-4 py-2 text-xs flex justify-between items-center shadow-inner">
+          <div className="bg-purple-50 border-l-4 border-purple-500 px-4 py-2 text-xs flex justify-between items-center shadow-inner">
             <div className="min-w-0 pr-4">
               <p className="font-bold text-purple-600 truncate">Replying to {replyTo.author}</p>
               <p className="text-gray-600 truncate italic">{replyTo.text || replyTo.file_name || "Original message"}</p>
@@ -393,41 +394,48 @@ export default function MessageBoard() {
             <button onClick={() => setReplyTo(null)} className="text-gray-400 hover:text-gray-600 shrink-0"><FiX size={18} /></button>
           </div>
         )}
+
         <div className="p-2 sm:p-3 flex items-end gap-1 sm:gap-2 max-w-4xl mx-auto">
           <div className="flex items-center gap-0.5 sm:gap-1 mb-1 shrink-0">
-            <button onClick={() => setShowEmoji(!showEmoji)} className="p-2 text-gray-500 hover:text-purple-600 transition-colors"><FiSmile size={20} /></button>
+            <button onClick={() => setShowEmoji(!showEmoji)} className="p-2 text-gray-500 hover:text-purple-600"><FiSmile size={20} /></button>
             <input type="file" hidden ref={fileInputRef} onChange={(e) => { if (e.target.files[0]) sendFile(e.target.files[0]); e.target.value = null; }} />
-            <button onClick={() => fileInputRef.current.click()} className="p-2 text-gray-500 hover:text-purple-600 transition-colors"><FiPaperclip size={20} /></button>
+            <button onClick={() => fileInputRef.current.click()} className="p-2 text-gray-500 hover:text-purple-600"><FiPaperclip size={20} /></button>
           </div>
           <div className="flex-1 relative flex items-center min-w-0">
-            <textarea rows="1" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }} placeholder="Message..." className="w-full bg-gray-100 border-none rounded-2xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 resize-none max-h-32" />
+            <textarea 
+               rows="1" 
+               value={text} 
+               onChange={(e) => setText(e.target.value)} 
+               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }} 
+               placeholder="Message..." 
+               className="w-full bg-gray-100 border-none rounded-2xl px-4 py-2 text-sm focus:ring-2 focus:ring-purple-500 resize-none max-h-32" 
+            />
           </div>
           <div className="flex items-center gap-1 mb-1 shrink-0">
-            <button onClick={recording ? stopRecording : startRecording} className={`p-2 rounded-full transition-all ${recording ? "bg-red-50 text-red-500 animate-pulse" : "text-gray-500 hover:text-purple-600"}`}><FiMic size={20} /></button>
-            <button onClick={sendMessage} disabled={(!text.trim() && !replyTo) || isSending} className={`p-2.5 rounded-full transition-all shrink-0 ${text.trim() || replyTo ? "bg-purple-600 text-white shadow-md active:scale-95" : "bg-gray-200 text-gray-400 cursor-not-allowed"}`}>
+            <button onClick={recording ? stopRecording : startRecording} className={`p-2 rounded-full ${recording ? "bg-red-50 text-red-500 animate-pulse" : "text-gray-500"}`}><FiMic size={20} /></button>
+            <button onClick={sendMessage} disabled={(!text.trim() && !replyTo) || isSending} className={`p-2.5 rounded-full transition-all ${text.trim() || replyTo ? "bg-purple-600 text-white shadow-md active:scale-95" : "bg-gray-200 text-gray-400"}`}>
               {isSending ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <FiSend size={18} />}
             </button>
           </div>
         </div>
+
         {showEmoji && (
-          <div className="absolute bottom-full mb-2 left-0 z-50 w-full sm:w-auto">
-            <EmojiPicker onEmojiClick={(e) => setText((p) => p + e.emoji)} width="100%" height={350} previewConfig={{ showPreview: false }} />
+          <div className="absolute bottom-full mb-2 left-0 z-50 w-full sm:w-auto shadow-xl">
+            <EmojiPicker onEmojiClick={(e) => setText((p) => p + e.emoji)} width="100%" height={300} previewConfig={{ showPreview: false }} />
           </div>
         )}
       </footer>
+
       <style>{`
         .message-highlight { animation: highlight-fade 2s ease-in-out; } 
         @keyframes highlight-fade { 0% { background-color: rgba(168, 85, 247, 0.3); } 100% { background-color: transparent; } }
-        
         @keyframes unread-glow {
           0% { box-shadow: 0 0 5px rgba(168, 85, 247, 0.2); }
           50% { box-shadow: 0 0 15px rgba(168, 85, 247, 0.5); }
           100% { box-shadow: 0 0 5px rgba(168, 85, 247, 0.2); }
         }
-        .animate-unread-pulse {
-          animation: unread-glow 2s infinite ease-in-out;
-        }
+        .animate-unread-pulse { animation: unread-glow 2s infinite ease-in-out; }
       `}</style>
-    </section>
+    </div>
   );
 }

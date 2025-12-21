@@ -19,20 +19,25 @@ self.addEventListener('push', function(event) {
 });
 
 // 2. Handle Local Reminders (Client-side trigger)
-// This listens to the "SCHEDULE_NOTIFICATION" message from your React app
+// Refactored to handle emojis and complex strings better
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SCHEDULE_NOTIFICATION') {
     const { title, body, delay } = event.data;
 
-    setTimeout(() => {
-      self.registration.showNotification(title, {
-        body: body,
-        icon: "/4PlusOne.png",
-        badge: "/4PlusOne.png",
-        vibrate: [100, 50, 100],
-        data: { url: "/feed" }
-      });
-    }, delay || 0);
+    // Use a promise-based wait to ensure the service worker stays active
+    const notificationPromise = new Promise((resolve) => {
+      setTimeout(() => {
+        self.registration.showNotification(title, {
+          body: body,
+          icon: "/4PlusOne.png",
+          badge: "/4PlusOne.png",
+          vibrate: [100, 50, 100],
+          data: { url: "/feed" }
+        }).then(resolve);
+      }, delay || 0);
+    });
+
+    event.waitUntil(notificationPromise);
   }
 });
 

@@ -192,7 +192,7 @@ export default function DuaSection() {
           }`}
         >
           <FiHeart className={isAmin ? "fill-current" : "animate-pulse"} />
-          {isAmin ? "አሚን ተብሏል" : "አሚን በይ (Say Amin)"}
+          {isAmin ? "አላህ ይቀበልሽ" : "አሚን በይ"}
         </button>
 
         <div className="flex gap-3">
@@ -213,12 +213,6 @@ export default function DuaSection() {
           <button onClick={handleRefresh} className="active-haptic flex-1 h-14 bg-gray-50 rounded-2xl flex items-center justify-center text-purple-600 transition-all">
             <FiRefreshCw size={20} className={fade ? "animate-spin" : ""} />
           </button>
-        </div>
-
-        {/* Swipe Hint */}
-        <div className="flex items-center justify-center gap-2 text-gray-400">
-          <span className="text-[10px] font-bold uppercase tracking-widest">Swipe Left for feed</span>
-          <FiArrowRight size={12} className="animate-bounce-x" />
         </div>
       </div>
 

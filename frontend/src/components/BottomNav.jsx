@@ -97,7 +97,7 @@ export default function BottomNav() {
 
   return (
     // Glassmorphism Container
-    <nav className="fixed bottom-4 left-4 right-4 bg-white/70 backdrop-blur-2xl border border-white/20 px-2 py-2 z-[1000] rounded-[2.5rem] shadow-[0_15px_35px_-5px_rgba(0,0,0,0.1)] sm:hidden">
+    <nav className="fixed bottom-1 left-4 right-4 bg-white/70 backdrop-blur-2xl border border-white/20 px-2 py-2 z-[1000] rounded-[2.5rem] shadow-[0_15px_35px_-5px_rgba(0,0,0,0.1)] sm:hidden">
       <div className="flex justify-between items-end h-14">
         <NavItem to="/" icon={FiHome} label="Home" active={currentPath === "/"} />
         <NavItem to="/feed" icon={FiMessageCircle} label="Feed" active={currentPath === "/feed"} badgeCount={unreadFeed} />

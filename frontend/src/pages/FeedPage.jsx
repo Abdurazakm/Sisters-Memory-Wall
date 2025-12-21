@@ -6,7 +6,7 @@ import {
 } from "../api";
 import { 
   FiImage, FiSend, FiTrash2, FiMessageCircle, FiX, FiEdit2, 
-  FiMaximize2, FiMoreVertical, FiCornerDownRight, FiChevronDown, FiChevronUp, FiRefreshCw, FiArrowDown
+  FiMaximize2, FiMoreVertical, FiCornerDownRight, FiRefreshCw, FiArrowDown
 } from "react-icons/fi";
 import { FaPrayingHands } from "react-icons/fa";
 import { getFileType } from "../components/SharedComponents";
@@ -15,6 +15,13 @@ import Header from "../components/Header";
 import BottomNav from "../components/BottomNav";
 
 const BACKEND_URL = import.meta.env.VITE_API_URL;
+
+/* ================== UTILS: HAPTIC FEEDBACK ================== */
+const triggerHaptic = (pattern = 10) => {
+  if ("vibrate" in navigator) {
+    navigator.vibrate(pattern);
+  }
+};
 
 /* ================== AVATAR HELPER ================== */
 function UserAvatar({ username, size = "w-10 h-10", fontSize = "text-base" }) {
@@ -38,10 +45,49 @@ function UserAvatar({ username, size = "w-10 h-10", fontSize = "text-base" }) {
 
   return (
     <div 
-      onClick={(e) => { e.stopPropagation(); navigate(`/profile/${username}`); }}
+      onClick={(e) => { 
+        e.stopPropagation(); 
+        triggerHaptic(5);
+        navigate(`/profile/${username}`); 
+      }}
       className={`${size} rounded-full overflow-hidden cursor-pointer bg-gradient-to-tr from-purple-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-sm hover:ring-2 ring-purple-300 transition-all flex-shrink-0`}
     >
       {photo ? <img src={photo} alt={username} className="w-full h-full object-cover" /> : <span className={fontSize}>{username ? username[0].toUpperCase() : "?"}</span>}
+    </div>
+  );
+}
+
+/* ================== HELPER: PROFESSIONAL READ MORE ================== */
+function TextWithReadMore({ text, limit = 280 }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  if (!text) return null;
+  
+  const isLongText = text.length > limit;
+
+  const handleToggle = () => {
+    triggerHaptic(7);
+    setIsExpanded(!isExpanded);
+  };
+
+  return (
+    <div className="mb-6 relative">
+      <p className={`text-gray-800 whitespace-pre-wrap leading-[1.7] font-medium text-[15px] transition-all duration-500 ${!isExpanded && isLongText ? 'max-h-[120px] overflow-hidden' : 'max-h-full'}`}>
+        {text}
+      </p>
+      
+      {isLongText && (
+        <>
+          {!isExpanded && (
+            <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-white to-transparent pointer-events-none" />
+          )}
+          <button 
+            onClick={handleToggle} 
+            className="text-purple-600 font-black text-[10px] uppercase mt-2 hover:text-purple-800 tracking-[0.15em] flex items-center gap-1 transition-all"
+          >
+            {isExpanded ? "Show Less" : "••• Read Full Post"}
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -57,7 +103,6 @@ export default function FeedPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState("all"); 
 
-  // Pull to Refresh State
   const [pullDistance, setPullDistance] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const startY = useRef(0);
@@ -82,7 +127,6 @@ export default function FeedPage() {
     setPosts(data || []);
   };
 
-  /* --- Pull to Refresh Logic --- */
   const handleTouchStart = (e) => {
     if (window.scrollY === 0) startY.current = e.touches[0].pageY;
   };
@@ -93,16 +137,19 @@ export default function FeedPage() {
     const distance = currentY - startY.current;
     if (distance > 0 && window.scrollY === 0) {
       setPullDistance(Math.min(distance * 0.4, pullThreshold + 20));
+      if (distance > pullThreshold && pullDistance < pullThreshold) triggerHaptic(10);
     }
   };
 
   const handleTouchEnd = async () => {
     if (pullDistance >= pullThreshold) {
+      triggerHaptic([15, 30]); // Refresh start pulse
       setIsRefreshing(true);
       setPullDistance(pullThreshold);
       await loadPosts();
       setIsRefreshing(false);
       setPullDistance(0);
+      triggerHaptic(10); // Refresh complete pulse
     } else {
       setPullDistance(0);
     }
@@ -120,6 +167,8 @@ export default function FeedPage() {
     e.preventDefault();
     if (!postText.trim() && selectedFiles.length === 0) return;
     setLoading(true);
+    triggerHaptic(15);
+
     const formData = new FormData();
     formData.append("text", postText);
     formData.append("type", postType); 
@@ -127,10 +176,14 @@ export default function FeedPage() {
 
     try {
       await createPost(formData);
+      triggerHaptic([20, 50, 20]); // Success pattern
       setPostText("");
       setSelectedFiles([]);
       setPostType("post"); 
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+      triggerHaptic([100, 50, 100]); // Error pattern
+      console.error(err); 
+    }
     setLoading(false);
   };
 
@@ -143,7 +196,7 @@ export default function FeedPage() {
     >
       <Header showControls={true} searchQuery={searchQuery} setSearchQuery={setSearchQuery} filterType={filterType} setFilterType={setFilterType} />
 
-      {/* Pull to Refresh Indicator */}
+      {/* Pull Indicator */}
       <div 
         style={{ height: `${pullDistance}px`, opacity: pullDistance / pullThreshold }}
         className="flex items-center justify-center overflow-hidden transition-all duration-200"
@@ -170,11 +223,11 @@ export default function FeedPage() {
         className="max-w-2xl mx-auto p-4 transition-transform duration-200"
         style={{ transform: `translateY(${pullDistance}px)` }}
       >
-        {/* Create Post Section */}
+        {/* Post Creation Box */}
         <div className={`bg-white rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border p-6 mb-8 transition-all ${postType === 'dua' ? 'ring-2 ring-emerald-400 border-emerald-100' : 'border-gray-100'}`}>
           <div className="flex gap-4 mb-4 bg-gray-50 p-1.5 rounded-2xl w-fit">
-            <button onClick={() => setPostType("post")} className={`text-[10px] font-black px-6 py-2 rounded-xl transition-all tracking-widest ${postType === 'post' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-400'}`}>POST</button>
-            <button onClick={() => setPostType("dua")} className={`text-[10px] font-black px-6 py-2 rounded-xl flex items-center gap-2 transition-all tracking-widest ${postType === 'dua' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400'}`}><FaPrayingHands size={12}/> DUA</button>
+            <button onClick={() => { triggerHaptic(5); setPostType("post"); }} className={`text-[10px] font-black px-6 py-2 rounded-xl transition-all tracking-widest ${postType === 'post' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-400'}`}>POST</button>
+            <button onClick={() => { triggerHaptic(5); setPostType("dua"); }} className={`text-[10px] font-black px-6 py-2 rounded-xl flex items-center gap-2 transition-all tracking-widest ${postType === 'dua' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-400'}`}><FaPrayingHands size={12}/> DUA</button>
           </div>
 
           <textarea value={postText} onChange={(e) => setPostText(e.target.value)} placeholder={postType === 'dua' ? "What can the family pray for?" : "What's on your mind?"} className="w-full border-none focus:ring-0 text-base md:text-lg resize-none outline-none font-medium mb-2 placeholder:text-gray-300" rows="3" />
@@ -184,19 +237,19 @@ export default function FeedPage() {
               {selectedFiles.map((f, i) => (
                 <div key={i} className="relative h-16 w-16 bg-gray-100 rounded-xl flex-shrink-0">
                   <span className="text-[8px] absolute bottom-1 left-1 text-gray-500 font-bold truncate w-14">{f.name}</span>
-                  <button onClick={() => setSelectedFiles(selectedFiles.filter((_, idx) => idx !== i))} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5"><FiX size={10}/></button>
+                  <button onClick={() => { triggerHaptic(10); setSelectedFiles(selectedFiles.filter((_, idx) => idx !== i)); }} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5"><FiX size={10}/></button>
                 </div>
               ))}
             </div>
           )}
 
           <div className="flex justify-between items-center mt-2 border-t border-gray-50 pt-4">
-            <button onClick={() => fileInputRef.current.click()} className="flex items-center gap-2 font-bold px-4 py-2 rounded-xl text-purple-600 hover:bg-purple-50 transition-colors">
+            <button onClick={() => { triggerHaptic(10); fileInputRef.current.click(); }} className="flex items-center gap-2 font-bold px-4 py-2 rounded-xl text-purple-600 hover:bg-purple-50 transition-colors">
               <FiImage size={22} /> <span className="text-[10px] font-black uppercase tracking-widest">Media</span>
             </button>
             <input type="file" hidden multiple ref={fileInputRef} onChange={(e) => setSelectedFiles(Array.from(e.target.files))} />
-            <button onClick={handleCreatePost} disabled={loading} className={`${postType === 'dua' ? 'bg-emerald-500' : 'bg-purple-600'} text-white px-8 py-3 rounded-[1.5rem] text-xs font-black shadow-lg shadow-purple-200 active:scale-95 disabled:opacity-50 transition-all`}>
-              {loading ? "..." : "SHARE"}
+            <button onClick={handleCreatePost} disabled={loading} className={`${postType === 'dua' ? 'bg-emerald-500 shadow-emerald-100' : 'bg-purple-600 shadow-purple-200'} text-white px-8 py-3 rounded-[1.5rem] text-xs font-black shadow-lg active:scale-95 disabled:opacity-50 transition-all uppercase tracking-widest`}>
+              {loading ? "..." : "Share"}
             </button>
           </div>
         </div>
@@ -225,6 +278,11 @@ function PostCard({ post, isMine, onRefresh, onOpenMedia, username }) {
   const [showMenu, setShowMenu] = useState(false);
   const navigate = useNavigate();
 
+  const toggleComments = () => {
+    triggerHaptic(10);
+    setShowComments(!showComments);
+  };
+
   return (
     <div className="bg-white rounded-[2.5rem] shadow-[0_4px_20px_rgb(0,0,0,0.03)] border border-gray-100 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="p-6">
@@ -238,11 +296,11 @@ function PostCard({ post, isMine, onRefresh, onOpenMedia, username }) {
           </div>
           {isMine && (
             <div className="relative">
-              <button onClick={() => setShowMenu(!showMenu)} className="p-2 hover:bg-gray-50 rounded-full text-gray-300"><FiMoreVertical size={20} /></button>
+              <button onClick={() => { triggerHaptic(5); setShowMenu(!showMenu); }} className="p-2 hover:bg-gray-50 rounded-full text-gray-300"><FiMoreVertical size={20} /></button>
               {showMenu && (
                 <div className="absolute right-0 mt-2 w-44 bg-white/80 backdrop-blur-xl border border-white/20 rounded-2xl shadow-2xl z-20 overflow-hidden p-1">
-                  <button onClick={() => { setIsEditing(true); setShowMenu(false); }} className="w-full text-left px-4 py-3 text-[10px] font-black text-gray-600 hover:bg-purple-50 rounded-xl flex items-center gap-3 tracking-widest uppercase"><FiEdit2 size={16} /> EDIT</button>
-                  <button onClick={() => { if(window.confirm("Delete?")) deletePost(post.id).then(onRefresh); }} className="w-full text-left px-4 py-3 text-[10px] font-black text-red-500 hover:bg-red-50 rounded-xl flex items-center gap-3 tracking-widest uppercase"><FiTrash2 size={16} /> DELETE</button>
+                  <button onClick={() => { triggerHaptic(5); setIsEditing(true); setShowMenu(false); }} className="w-full text-left px-4 py-3 text-[10px] font-black text-gray-600 hover:bg-purple-50 rounded-xl flex items-center gap-3 tracking-widest uppercase"><FiEdit2 size={16} /> EDIT</button>
+                  <button onClick={() => { triggerHaptic(20); if(window.confirm("Delete?")) deletePost(post.id).then(onRefresh); }} className="w-full text-left px-4 py-3 text-[10px] font-black text-red-500 hover:bg-red-50 rounded-xl flex items-center gap-3 tracking-widest uppercase"><FiTrash2 size={16} /> DELETE</button>
                 </div>
               )}
             </div>
@@ -253,8 +311,8 @@ function PostCard({ post, isMine, onRefresh, onOpenMedia, username }) {
           <div className="mb-4">
             <textarea className="w-full border-2 border-purple-100 rounded-2xl p-4 text-sm outline-none font-medium" value={editText} onChange={e => setEditText(e.target.value)} rows="3" />
             <div className="flex gap-2 mt-2">
-              <button onClick={async () => { await updatePost(post.id, editText); setIsEditing(false); onRefresh(); }} className="bg-purple-600 text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest">SAVE</button>
-              <button onClick={() => setIsEditing(false)} className="bg-gray-100 text-gray-500 px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest">CANCEL</button>
+              <button onClick={async () => { triggerHaptic(15); await updatePost(post.id, editText); setIsEditing(false); onRefresh(); }} className="bg-purple-600 text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest">SAVE</button>
+              <button onClick={() => { triggerHaptic(5); setIsEditing(false); }} className="bg-gray-100 text-gray-500 px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest">CANCEL</button>
             </div>
           </div>
         ) : (
@@ -264,7 +322,7 @@ function PostCard({ post, isMine, onRefresh, onOpenMedia, username }) {
         {post.post_files?.length > 0 && (
           <div className={`grid gap-2 rounded-3xl overflow-hidden mb-6 ${post.post_files.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
             {post.post_files.map((file, idx) => (
-              <div key={idx} className="relative aspect-square bg-gray-50 flex items-center justify-center cursor-pointer group overflow-hidden" onClick={() => onOpenMedia(`${file.file_url}`, getFileType(file.file_type))}>
+              <div key={idx} className="relative aspect-square bg-gray-50 flex items-center justify-center cursor-pointer group overflow-hidden" onClick={() => { triggerHaptic(10); onOpenMedia(`${file.file_url}`, getFileType(file.file_type)); }}>
                 {getFileType(file.file_type) === "image" ? (
                   <img src={`${file.file_url}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
                 ) : (
@@ -279,7 +337,7 @@ function PostCard({ post, isMine, onRefresh, onOpenMedia, username }) {
         )}
 
         <button 
-          onClick={() => setShowComments(!showComments)} 
+          onClick={toggleComments} 
           className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] px-5 py-3 rounded-2xl transition-all ${showComments ? 'text-purple-600 bg-purple-50' : 'text-gray-400 bg-gray-50 hover:bg-gray-100'}`}
         >
           <FiMessageCircle size={18} strokeWidth={3} /> {post.comments?.length || 0} Comments
@@ -296,10 +354,12 @@ function CommentSection({ postId, comments = [], onRefresh, username }) {
   const [activeEditId, setActiveEditId] = useState(null);
   const [activeMenuId, setActiveMenuId] = useState(null);
   const [expandedThreads, setExpandedThreads] = useState({});
-  const commentRefs = useRef({});
 
-  const toggleThread = (id) => setExpandedThreads(prev => ({ ...prev, [id]: !prev[id] }));
-
+  const toggleThread = (id) => {
+    triggerHaptic(5);
+    setExpandedThreads(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+  
   const rootComments = comments.filter(c => !c.reply_to);
 
   return (
@@ -317,7 +377,7 @@ function CommentSection({ postId, comments = [], onRefresh, username }) {
               setActiveEditId={setActiveEditId}
               activeMenuId={activeMenuId}
               setActiveMenuId={setActiveMenuId}
-              onReply={() => setActiveReply({ threadId: parent.id, targetAuthor: parent.author, replyToId: parent.id })}
+              onReply={() => { triggerHaptic(5); setActiveReply({ threadId: parent.id, targetAuthor: parent.author, replyToId: parent.id }); }}
               onRefresh={onRefresh}
               username={username}
             />
@@ -344,7 +404,7 @@ function CommentSection({ postId, comments = [], onRefresh, username }) {
                     setActiveEditId={setActiveEditId}
                     activeMenuId={activeMenuId}
                     setActiveMenuId={setActiveMenuId}
-                    onReply={() => setActiveReply({ threadId: parent.id, targetAuthor: reply.author, replyToId: reply.id })}
+                    onReply={() => { triggerHaptic(5); setActiveReply({ threadId: parent.id, targetAuthor: reply.author, replyToId: reply.id }); }}
                     onRefresh={onRefresh}
                     username={username}
                   />
@@ -359,12 +419,13 @@ function CommentSection({ postId, comments = [], onRefresh, username }) {
                     <FiCornerDownRight className="text-purple-400" size={12} />
                     <span className="text-[9px] font-black text-purple-500 uppercase">Replying to @{activeReply.targetAuthor}</span>
                    </div>
-                   <button onClick={() => setActiveReply(null)} className="text-[9px] font-bold text-gray-400 uppercase">Cancel</button>
+                   <button onClick={() => { triggerHaptic(5); setActiveReply(null); }} className="text-[9px] font-bold text-gray-400 uppercase">Cancel</button>
                 </div>
                 <CommentInput 
                   placeholder="Write a reply..." 
                   autoFocus={true}
                   onSubmit={async (val) => {
+                    triggerHaptic(15);
                     await addComment(postId, val, parent.id, activeReply.replyToId);
                     setExpandedThreads(prev => ({...prev, [parent.id]: true}));
                     setActiveReply(null);
@@ -376,31 +437,14 @@ function CommentSection({ postId, comments = [], onRefresh, username }) {
           </div>
         );
       })}
-      {!activeReply && <div className="pt-4"><CommentInput onSubmit={async (val) => { await addComment(postId, val); onRefresh(); }} /></div>}
+      {!activeReply && <div className="pt-4"><CommentInput onSubmit={async (val) => { triggerHaptic(15); await addComment(postId, val); onRefresh(); }} /></div>}
     </div>
   );
 }
 
 /* ================== HELPER COMPONENTS ================== */
 
-function TextWithReadMore({ text, limit = 150 }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  if (!text) return null;
-  if (text.length <= limit) return <p className="text-gray-800 mb-6 whitespace-pre-wrap leading-[1.8] font-medium text-[15px]">{text}</p>;
-
-  return (
-    <div className="mb-6">
-      <p className="text-gray-800 whitespace-pre-wrap leading-[1.8] font-medium text-[15px] inline">
-        {isExpanded ? text : `${text.substring(0, limit)}... `}
-      </p>
-      <button onClick={() => setIsExpanded(!isExpanded)} className="text-purple-600 font-black text-[10px] uppercase ml-1 hover:underline tracking-widest">
-        {isExpanded ? "Less" : "Read More"}
-      </button>
-    </div>
-  );
-}
-
-function CommentBubble({ comment, isReply, targetAuthorName, onParentClick, activeEditId, setActiveEditId, activeMenuId, setActiveMenuId, onReply, onRefresh, username }) {
+function CommentBubble({ comment, isReply, targetAuthorName, activeEditId, setActiveEditId, activeMenuId, setActiveMenuId, onReply, onRefresh, username }) {
   const navigate = useNavigate();
   return (
     <div className="group flex gap-3">
@@ -409,24 +453,24 @@ function CommentBubble({ comment, isReply, targetAuthorName, onParentClick, acti
         <div className="flex items-start justify-between">
           <div className="bg-white p-3.5 rounded-2xl rounded-tl-none border border-gray-100 shadow-sm inline-block max-w-[95%]">
             <div className="flex items-center gap-2 mb-1">
-              <p onClick={() => navigate(`/profile/${comment.author}`)} className="text-[9px] font-black text-purple-600 uppercase cursor-pointer tracking-wider">{comment.author}</p>
+              <p onClick={() => { triggerHaptic(5); navigate(`/profile/${comment.author}`); }} className="text-[9px] font-black text-purple-600 uppercase cursor-pointer tracking-wider">{comment.author}</p>
               {isReply && (
                 <span className="text-[9px] font-bold text-gray-300 uppercase tracking-tighter">@{targetAuthorName}</span>
               )}
             </div>
             {activeEditId === comment.id ? (
-              <CommentInput initialValue={comment.text} onCancel={() => setActiveEditId(null)} onSubmit={async (val) => { await updateComment(comment.id, val); setActiveEditId(null); onRefresh(); }} />
+              <CommentInput initialValue={comment.text} onCancel={() => { triggerHaptic(5); setActiveEditId(null); }} onSubmit={async (val) => { triggerHaptic(15); await updateComment(comment.id, val); setActiveEditId(null); onRefresh(); }} />
             ) : (
               <p className="text-[13px] text-gray-700 font-medium break-words leading-relaxed">{comment.text}</p>
             )}
           </div>
           {comment.author === username && activeEditId !== comment.id && (
             <div className="relative">
-              <button onClick={() => setActiveMenuId(activeMenuId === comment.id ? null : comment.id)} className="p-1 text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-600 transition-opacity"><FiMoreVertical size={16}/></button>
+              <button onClick={() => { triggerHaptic(5); setActiveMenuId(activeMenuId === comment.id ? null : comment.id); }} className="p-1 text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-600 transition-opacity"><FiMoreVertical size={16}/></button>
               {activeMenuId === comment.id && (
                 <div className="absolute right-0 w-32 bg-white/90 backdrop-blur-md shadow-2xl border border-gray-100 rounded-xl z-50 py-1">
-                  <button onClick={() => { setActiveEditId(comment.id); setActiveMenuId(null); }} className="w-full text-left px-3 py-2 text-[9px] font-black text-gray-600 uppercase flex items-center gap-2 tracking-widest"><FiEdit2 size={12}/> Edit</button>
-                  <button onClick={() => { if(window.confirm("Delete?")) deleteComment(comment.id).then(onRefresh); }} className="w-full text-left px-3 py-2 text-[9px] font-black text-red-500 uppercase flex items-center gap-2 tracking-widest"><FiTrash2 size={12}/> Delete</button>
+                  <button onClick={() => { triggerHaptic(5); setActiveEditId(comment.id); setActiveMenuId(null); }} className="w-full text-left px-3 py-2 text-[9px] font-black text-gray-600 uppercase flex items-center gap-2 tracking-widest"><FiEdit2 size={12}/> Edit</button>
+                  <button onClick={() => { triggerHaptic(20); if(window.confirm("Delete?")) deleteComment(comment.id).then(onRefresh); }} className="w-full text-left px-3 py-2 text-[9px] font-black text-red-500 uppercase flex items-center gap-2 tracking-widest"><FiTrash2 size={12}/> Delete</button>
                 </div>
               )}
             </div>

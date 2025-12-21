@@ -37,7 +37,7 @@ export default function Login({ setToken }) {
       localStorage.setItem("token", data.token);
       localStorage.setItem("username", username);
       setToken(data.token); 
-      navigate("/messages", { replace: true });
+      navigate("/", { replace: true });
 
     } catch (err) {
       console.error("Login failed:", err);

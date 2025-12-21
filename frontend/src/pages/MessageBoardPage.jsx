@@ -1,7 +1,7 @@
 import React from "react";
 import MessageBoard from "../components/MessageBoard";
 import { Link } from "react-router-dom";
-import BottomNav from "../components/BottomNav";
+// import BottomNav from "../components/BottomNav";
 
 export default function MessageBoardPage() {
   return (
@@ -20,7 +20,7 @@ export default function MessageBoardPage() {
       </div>
 
       {/* The Navigation bar stays fixed at the very bottom */}
-      <BottomNav />
+      {/* <BottomNav /> */}
     </div>
   );
 }
