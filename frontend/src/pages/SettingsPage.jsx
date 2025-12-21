@@ -5,7 +5,7 @@ import {
   FiLock, FiUser, FiArrowLeft, FiSave, FiLogOut, 
   FiEdit3, FiShield, FiBell, FiSend 
 } from "react-icons/fi";
-import { toast } from "react-hot-toast"; // Ensure this is installed
+import { toast } from "react-hot-toast";
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -23,7 +23,14 @@ export default function SettingsPage() {
   const [message, setMessage] = useState({ type: "", text: "" });
   
   // --- Notification State ---
-  const [reminders, setReminders] = useState(localStorage.getItem("dua_reminder") === "true");
+  const [reminders, setReminders] = useState(false);
+
+  // Sync state with local storage and ACTUAL browser permission on load
+  useEffect(() => {
+    const savedPreference = localStorage.getItem("dua_reminder") === "true";
+    const hasPermission = Notification.permission === "granted";
+    setReminders(savedPreference && hasPermission);
+  }, []);
 
   useEffect(() => {
     const fetchCurrentBio = async () => {
@@ -44,7 +51,7 @@ export default function SettingsPage() {
     if (newState) {
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
-        toast.error("Notification permission denied!");
+        toast.error("Notification permission denied! Enable it in browser settings.");
         return;
       }
     }
@@ -55,20 +62,32 @@ export default function SettingsPage() {
   };
 
   const sendTestNotification = async () => {
-    if (!("serviceWorker" in navigator)) return toast.error("Not supported on this browser");
-    
-    const registration = await navigator.serviceWorker.ready;
-    if (Notification.permission === "granted") {
-      registration.showNotification("Sisters’ Wall", {
-        body: "Success! Your notifications are configured correctly. ✨",
-        icon: "/logo192.png",
-        vibrate: [100, 50, 100],
-      });
-    } else {
-      toast.error("Please enable permissions first");
+    if (!("serviceWorker" in navigator)) {
+      return toast.error("Service Worker not supported on this browser");
+    }
+
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      
+      if (Notification.permission === "granted") {
+        // This triggers the 'message' event listener in your sw.js
+        registration.active.postMessage({
+          type: 'SCHEDULE_NOTIFICATION',
+          title: '4PlusOne ✨',
+          body: 'Success! Your notifications are configured correctly.',
+          delay: 500 // 0.5 second delay
+        });
+        toast.success("Test signal sent to Service Worker");
+      } else {
+        toast.error("Please enable permissions first");
+      }
+    } catch (err) {
+      console.error("SW Message Error:", err);
+      toast.error("Could not communicate with Service Worker");
     }
   };
 
+  // --- Account Handlers ---
   const handleLogout = () => {
     localStorage.clear();
     window.location.href = "/login";
@@ -132,6 +151,7 @@ export default function SettingsPage() {
                 </div>
               </div>
               <button 
+                type="button"
                 onClick={toggleReminders}
                 className={`w-12 h-7 rounded-full transition-all relative ${reminders ? 'bg-purple-600' : 'bg-gray-200'}`}
               >
@@ -141,6 +161,7 @@ export default function SettingsPage() {
 
             {reminders && (
               <button
+                type="button"
                 onClick={sendTestNotification}
                 className="w-full py-3 bg-gray-50 hover:bg-gray-100 rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-500 flex items-center justify-center gap-2 transition-all"
               >
